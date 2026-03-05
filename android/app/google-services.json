@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "922824594006",
+    "project_id": "heartech-eea27",
+    "storage_bucket": "heartech-eea27.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:922824594006:android:c1f9e891550003ce52a1f7",
+        "android_client_info": {
+          "package_name": "com.example.heartech"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuNvYbUpATI1hO83dR2acktZTKan3tUR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
