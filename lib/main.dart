@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+void main() {
+  runApp(const MaterialApp(home: LoginScreen()));
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
