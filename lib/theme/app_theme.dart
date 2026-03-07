@@ -50,6 +50,32 @@ class AppTheme {
     ],
   );
 
+  // Sleek 2026 Gradient for the background
+  static const BoxDecoration premiumBackground = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color(0xFFF4F9F9),
+        Color(0xFFE0F2F1),
+      ], // Soft, premium teal-tinted white
+    ),
+  );
+
+  // Glowing Card Decoration
+  static BoxDecoration premiumCard = BoxDecoration(
+    color: Colors.white.withOpacity(0.9),
+    borderRadius: BorderRadius.circular(24),
+    border: Border.all(color: Colors.white, width: 2),
+    boxShadow: [
+      BoxShadow(
+        color: primaryTeal.withOpacity(0.08),
+        blurRadius: 24,
+        offset: const Offset(0, 10),
+      ),
+    ],
+  );
+
   // 4. MASTER BUTTON STYLES
   static ButtonStyle primaryButton = ElevatedButton.styleFrom(
     backgroundColor: primaryTeal,
