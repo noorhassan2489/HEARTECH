@@ -10,72 +10,108 @@ class RoleSelectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: AppTheme.premiumBackground,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Logo & Headers with staggered entrance
-                const Icon(
-                  Icons.stream,
-                  size: 70,
-                  color: AppTheme.primaryTeal,
-                ).animate().scale(
-                  delay: 200.ms,
-                  duration: 600.ms,
-                  curve: Curves.easeOutBack,
+      // Matching your custom light blue background!
+      backgroundColor: const Color(0xFF99E2E6),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // YOUR CUSTOM LOGO HERE
+              Center(
+                child:
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        // Pulling the logo from your assets folder!
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ).animate().scale(
+                      delay: 200.ms,
+                      duration: 600.ms,
+                      curve: Curves.easeOutBack,
+                    ),
+              ),
+              const SizedBox(height: 16),
+
+              // Title text matching your screenshot
+              Text(
+                "HearTech",
+                textAlign: TextAlign.center,
+                style: AppTheme.heading1.copyWith(
+                  color: const Color(0xFF006D77),
+                  fontSize: 32,
                 ),
-                const SizedBox(height: 24),
+              ).animate().fade(delay: 300.ms).slideY(begin: 0.2),
 
-                Text(
-                  "HearTech",
-                  textAlign: TextAlign.center,
-                  style: AppTheme.heading1.copyWith(fontSize: 36),
-                ).animate().fade(delay: 300.ms).slideY(begin: 0.2),
-
-                Text(
-                  "Select your portal to begin",
-                  textAlign: TextAlign.center,
-                  style: AppTheme.subtitle,
-                ).animate().fade(delay: 400.ms).slideY(begin: 0.2),
-
-                const SizedBox(height: 50),
-
-                // Bouncy Interactive Cards
-                BouncyRoleCard(
-                  title: "Parent / Caregiver",
-                  icon: Icons.face_retouching_natural,
-                  delay: 500,
-                  onTap: () {},
+              const SizedBox(height: 4),
+              Text(
+                "Early Hearing Tracker",
+                textAlign: TextAlign.center,
+                style: AppTheme.subtitle.copyWith(
+                  color: const Color(0xFF006D77),
                 ),
-                const SizedBox(height: 20),
+              ).animate().fade(delay: 400.ms).slideY(begin: 0.2),
 
-                BouncyRoleCard(
-                  title: "Educator / Teacher",
-                  icon: Icons.auto_stories,
-                  delay: 600,
-                  onTap: () {},
-                ),
-                const SizedBox(height: 20),
+              const SizedBox(height: 40),
 
-                BouncyRoleCard(
-                  title: "Healthcare Worker",
-                  icon: Icons.medical_information,
-                  delay: 700,
-                  onTap: () {
-                    // Use our custom buttery transition!
-                    Navigator.push(
-                      context,
-                      PremiumTransition(page: const HWLoginScreen()),
-                    );
-                  },
+              Text(
+                "Select Your Role",
+                textAlign: TextAlign.center,
+                style: AppTheme.heading2.copyWith(
+                  color: const Color(0xFF006D77),
+                  fontSize: 18,
                 ),
-              ],
-            ),
+              ).animate().fade(delay: 450.ms),
+
+              const SizedBox(height: 20),
+
+              // Bouncy Interactive Cards matching your exact screenshot colors
+              BouncyRoleCard(
+                title: "Parent / Caregiver",
+                icon: Icons.family_restroom,
+                iconColor: Colors.purple,
+                iconBgColor: Colors.purple.withOpacity(0.1),
+                delay: 500,
+                onTap: () {},
+              ),
+              const SizedBox(height: 16),
+
+              BouncyRoleCard(
+                title: "Teacher",
+                icon: Icons.school,
+                iconColor: Colors.teal,
+                iconBgColor: Colors.teal.withOpacity(0.1),
+                delay: 600,
+                onTap: () {},
+              ),
+              const SizedBox(height: 16),
+
+              BouncyRoleCard(
+                title: "Healthcare Worker",
+                icon: Icons.medical_services,
+                iconColor: Colors.blue.shade700,
+                iconBgColor: Colors.blue.withOpacity(0.1),
+                delay: 700,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    PremiumTransition(page: const HWLoginScreen()),
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ),
@@ -84,11 +120,13 @@ class RoleSelectionScreen extends StatelessWidget {
 }
 
 // --------------------------------------------------------
-// THE BOUNCY CARD WIDGET (For that premium tactile feel)
+// THE BOUNCY CARD WIDGET
 // --------------------------------------------------------
 class BouncyRoleCard extends StatefulWidget {
   final String title;
   final IconData icon;
+  final Color iconColor;
+  final Color iconBgColor;
   final int delay;
   final VoidCallback onTap;
 
@@ -96,6 +134,8 @@ class BouncyRoleCard extends StatefulWidget {
     super.key,
     required this.title,
     required this.icon,
+    required this.iconColor,
+    required this.iconBgColor,
     required this.delay,
     required this.onTap,
   });
@@ -118,34 +158,48 @@ class _BouncyRoleCardState extends State<BouncyRoleCard> {
       onTapCancel: () => setState(() => _isPressed = false),
       child:
           AnimatedScale(
-                scale: _isPressed ? 0.95 : 1.0, // The squish effect!
+                scale: _isPressed ? 0.95 : 1.0,
                 duration: const Duration(milliseconds: 150),
                 curve: Curves.easeInOut,
                 child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: AppTheme.premiumCard,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.primaryTeal, AppTheme.lightMint],
-                          ),
-                          borderRadius: BorderRadius.circular(16),
+                          color: widget.iconBgColor,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(widget.icon, color: Colors.white, size: 28),
+                        child: Icon(
+                          widget.icon,
+                          color: widget.iconColor,
+                          size: 28,
+                        ),
                       ),
                       const SizedBox(width: 20),
                       Expanded(
                         child: Text(
                           widget.title,
-                          style: AppTheme.heading2.copyWith(fontSize: 18),
+                          style: AppTheme.heading2.copyWith(
+                            fontSize: 16,
+                            color: AppTheme.textDark,
+                          ),
                         ),
-                      ),
-                      const Icon(
-                        Icons.arrow_forward,
-                        color: AppTheme.primaryTeal,
                       ),
                     ],
                   ),
