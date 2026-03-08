@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/page_transitions.dart';
 import 'HealthcareWorker/hw_login_screen.dart';
+import 'Parent/parent_login_screen.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
@@ -84,7 +85,13 @@ class RoleSelectionScreen extends StatelessWidget {
                 iconColor: Colors.purple,
                 iconBgColor: Colors.purple.withOpacity(0.1),
                 delay: 500,
-                onTap: () {},
+                onTap: () {
+                  Navigator.push(
+                      context,
+                      PremiumTransition(page: const ParentLoginScreen()),
+                    );
+
+                },
               ),
               const SizedBox(height: 16),
 
