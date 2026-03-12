@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Slide-up + fade-in page transition used throughout HearTech.
 class PremiumTransition extends PageRouteBuilder {
   final Widget page;
 
@@ -9,7 +10,6 @@ class PremiumTransition extends PageRouteBuilder {
         transitionDuration: const Duration(milliseconds: 600),
         reverseTransitionDuration: const Duration(milliseconds: 400),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          // Slide up and fade in smoothly
           var curve = CurvedAnimation(
             parent: animation,
             curve: Curves.easeOutExpo,
@@ -26,6 +26,31 @@ class PremiumTransition extends PageRouteBuilder {
           return FadeTransition(
             opacity: fadeAnimation,
             child: SlideTransition(position: slideAnimation, child: child),
+          );
+        },
+      );
+}
+
+/// Slide right-to-left for forward nav.
+class SlideForwardTransition extends PageRouteBuilder {
+  final Widget page;
+
+  SlideForwardTransition({required this.page})
+    : super(
+        pageBuilder: (context, animation, secondaryAnimation) => page,
+        transitionDuration: const Duration(milliseconds: 400),
+        reverseTransitionDuration: const Duration(milliseconds: 350),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          var curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1.0, 0.0),
+              end: Offset.zero,
+            ).animate(curve),
+            child: child,
           );
         },
       );

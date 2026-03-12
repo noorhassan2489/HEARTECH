@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
-import 'theme/app_theme.dart';
-import 'role_selection_screen.dart'; // We will create this next
+import 'core/theme/app_theme.dart';
+import 'core/router/app_router.dart';
+import 'services/notification_service.dart';
 
 void main() async {
-  // 1. Initialize Flutter & Firebase
+  // 1. Initialize Flutter
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  
+  // 2. Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
-  // 2. Run the App
-  runApp(const HearTechApp());
+  // Initialize Push Notifications
+  await NotificationService().init();
+
+  // 3. Run App wrapped in Riverpod ProviderScope
+  runApp(const ProviderScope(child: HearTechApp()));
 }
 
 class HearTechApp extends StatelessWidget {
@@ -21,13 +30,9 @@ class HearTechApp extends StatelessWidget {
     return MaterialApp(
       title: 'HearTech',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        scaffoldBackgroundColor: AppTheme.bgOffWhite,
-        useMaterial3: true,
-        primaryColor: AppTheme.primaryTeal,
-      ),
-      // Start the app at the Role Selection Screen
-      home: const RoleSelectionScreen(),
+      theme: AppTheme.themeData, // Using the full design system
+      initialRoute: AppRouter.splash, // Start at splash screen
+      onGenerateRoute: AppRouter.generateRoute, // Centralized routing
     );
   }
 }
