@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../data/questionnaire_data.dart';
 import '../widgets/question_card.dart';
@@ -109,9 +109,12 @@ class _ScreeningFlowScreenState extends State<ScreeningFlowScreen> {
       _calculatedBracket = "3+ years";
     }
 
-    // Determine role (mocked as HCW for now or get from auth)
-    // In full implementation, we get this from the logged in user
-    _questions = QuestionnaireData.getQuestions("hcw", _calculatedBracket);
+    // Map role string to questionnaire key
+    String roleKey = 'hcw';
+    if (widget.role.toLowerCase().contains('parent')) roleKey = 'parent';
+    if (widget.role.toLowerCase().contains('teacher')) roleKey = 'teacher';
+    
+    _questions = QuestionnaireData.getQuestions(roleKey, _calculatedBracket);
     
     setState(() => _currentStep++);
     _pageController.nextPage(
@@ -400,22 +403,22 @@ class _ScreeningFlowScreenState extends State<ScreeningFlowScreen> {
             riskScore: _screeningState['riskScore'] as double,
             isHCW: widget.role == 'Healthcare Worker', 
             onActionPressed: () {
-              // TODO: Navigate to create child profile
-              setState(() {
-                _screeningState = {
-                  'childName': '',
-                  'dob': null,
-                  'gender': '',
-                  'responses': <String, int>{},
-                  'riskScore': 0.0,
-                };
-              });
               if (widget.role == 'Healthcare Worker') {
-                context.go('/hcw/dashboard');
-              } else if (widget.role == 'Parent') {
-                context.go('/parent/dashboard');
+                // Navigate to child profile creation with screening data
+                Navigator.pushReplacementNamed(
+                  context, AppRouter.childCreate,
+                  arguments: _screeningState,
+                );
               } else {
-                context.go('/teacher/dashboard');
+                // Parent/Teacher go back to their dashboard
+                String route = AppRouter.parentDashboard;
+                if (widget.role.toLowerCase().contains('teacher')) {
+                  route = AppRouter.teacherDashboard;
+                }
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  route,
+                  (r) => false,
+                );
               }
             },
           ),

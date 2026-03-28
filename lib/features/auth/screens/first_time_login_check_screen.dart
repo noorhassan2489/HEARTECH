@@ -28,29 +28,38 @@ class _FirstTimeLoginCheckScreenState extends State<FirstTimeLoginCheckScreen> {
       if (doc != null && doc.isNotEmpty) {
         // Profile exists, route based on role
         final role = doc['role'] as String?;
+        String route;
 
         switch (role) {
           case 'parent':
-            Navigator.pushReplacementNamed(context, AppRouter.parentDashboard);
+            route = AppRouter.parentDashboard;
             break;
           case 'hcw':
-            Navigator.pushReplacementNamed(context, AppRouter.hcwDashboard);
+            route = AppRouter.hcwDashboard;
             break;
           case 'teacher':
-            Navigator.pushReplacementNamed(context, AppRouter.teacherDashboard);
+            route = AppRouter.teacherDashboard;
             break;
           default:
-            Navigator.pushReplacementNamed(context, AppRouter.roleSelect);
+            route = AppRouter.roleSelect;
         }
+
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          route,
+          (route) => false, // Clear the entire nav stack
+        );
       } else {
-        // Profile does not exist yet. This usually means they signed in with Google
-        // for the first time without creating an account first, or account creation was interrupted.
-        // Send them to role selection.
-        Navigator.pushReplacementNamed(context, AppRouter.roleSelect);
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRouter.roleSelect,
+          (route) => false,
+        );
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.roleSelect);
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRouter.roleSelect,
+          (route) => false,
+        );
       }
     }
   }

@@ -86,7 +86,10 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
       });
 
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.parentDashboard);
+        Navigator.pushReplacementNamed(
+          context, AppRouter.authCheck,
+          arguments: {'uid': uid},
+        );
       }
     } catch (e) {
       if (mounted) {

@@ -22,6 +22,8 @@ import '../../features/speech/screens/speech_module_screen.dart';
 import '../../features/speech/screens/show_and_tell_screen.dart';
 import '../../features/speech/screens/ling_six_screen.dart';
 import '../../features/referral/screens/referral_preview_screen.dart';
+import '../../features/invites/screens/pending_invites_screen.dart';
+import '../../features/settings/screens/notification_prefs_screen.dart';
 /// Centralized named-route navigation for the app.
 class AppRouter {
   AppRouter._();
@@ -48,6 +50,9 @@ class AppRouter {
   static const String referralPreview = '/referral/preview';
   static const String childCreate     = '/child/create';
   static const String childProfile    = '/child/profile';
+  static const String pendingInvites  = '/teacher/invites';
+  static const String inviteTeacher   = '/parent/invite-teacher';
+  static const String notificationPrefs = '/settings/notifications';
 
   /// Generate a [Route] from route settings (used with onGenerateRoute).
   static Route<dynamic> generateRoute(RouteSettings settings) {
@@ -119,17 +124,23 @@ class AppRouter {
 
       // ── AI & Speech ──
       case speechModules:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(SpeechModuleScreen(childId: args['childId']));
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slide(SpeechModuleScreen(childId: args?['childId'] ?? ''));
       case showAndTell:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(ShowAndTellScreen(childId: args['childId']));
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slide(ShowAndTellScreen(childId: args?['childId'] ?? ''));
       case lingSix:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(LingSixScreen(childId: args['childId']));
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slide(LingSixScreen(childId: args?['childId'] ?? ''));
       case referralPreview:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(ReferralPreviewScreen(childId: args['childId']));
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slide(ReferralPreviewScreen(childId: args?['childId'] ?? ''));
+
+      // ── Invites & Settings ──
+      case pendingInvites:
+        return _slide(const PendingInvitesScreen());
+      case notificationPrefs:
+        return _slide(const NotificationPrefsScreen());
 
       // ── Fallback ──
       default:

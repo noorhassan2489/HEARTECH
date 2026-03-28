@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/router/app_router.dart';
 
@@ -37,7 +36,7 @@ class SpeechModuleScreen extends StatelessWidget {
               description: 'Examine speech clarity through picture descriptions. Powered by AI.',
               icon: Icons.record_voice_over,
               color: AppTheme.primaryTeal,
-              onTap: () => context.push(AppRouter.showAndTell, extra: {'childId': childId}),
+              onTap: () => Navigator.pushNamed(context, AppRouter.showAndTell, arguments: {'childId': childId}),
             ),
             const SizedBox(height: 16),
             
@@ -47,7 +46,7 @@ class SpeechModuleScreen extends StatelessWidget {
               description: 'Check behavioral response to the six fundamental speech frequencies.',
               icon: Icons.hearing,
               color: AppTheme.accentCoral,
-              onTap: () => context.push(AppRouter.lingSix, extra: {'childId': childId}),
+              onTap: () => Navigator.pushNamed(context, AppRouter.lingSix, arguments: {'childId': childId}),
             ),
           ],
         ),

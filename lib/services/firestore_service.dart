@@ -258,4 +258,101 @@ class FirestoreService {
         .doc(notifId)
         .update({'read': true});
   }
+
+  Future<void> markAllNotificationsRead(String uid) async {
+    final snap = await _db
+        .collection(FirestorePaths.notifications)
+        .doc(uid)
+        .collection(FirestorePaths.notifItems)
+        .where('read', isEqualTo: false)
+        .get();
+    final batch = _db.batch();
+    for (final doc in snap.docs) {
+      batch.update(doc.reference, {'read': true});
+    }
+    await batch.commit();
+  }
+
+  Future<void> deleteNotification(String uid, String notifId) async {
+    await _db
+        .collection(FirestorePaths.notifications)
+        .doc(uid)
+        .collection(FirestorePaths.notifItems)
+        .doc(notifId)
+        .delete();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  INVITES
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<String> createInvite(Map<String, dynamic> data) async {
+    final doc = await _db.collection(FirestorePaths.invites).add({
+      ...data,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    return doc.id;
+  }
+
+  Stream<List<Map<String, dynamic>>> pendingInvitesForTeacher(String teacherUid) {
+    return _db
+        .collection(FirestorePaths.invites)
+        .where('teacherUid', isEqualTo: teacherUid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => {'inviteId': d.id, ...d.data()})
+            .toList());
+  }
+
+  Stream<List<Map<String, dynamic>>> invitesForParent(String parentUid) {
+    return _db
+        .collection(FirestorePaths.invites)
+        .where('parentUid', isEqualTo: parentUid)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => {'inviteId': d.id, ...d.data()})
+            .toList());
+  }
+
+  Future<void> updateInvite(String inviteId, Map<String, dynamic> data) async {
+    await _db.collection(FirestorePaths.invites).doc(inviteId).update(data);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TEACHER OBSERVATIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<String> addTeacherObservation(
+      String childId, Map<String, dynamic> data) async {
+    final doc = await _db
+        .collection(FirestorePaths.children)
+        .doc(childId)
+        .collection(FirestorePaths.teacherObservations)
+        .add({...data, 'date': FieldValue.serverTimestamp()});
+    return doc.id;
+  }
+
+  Stream<List<Map<String, dynamic>>> childTeacherObservations(String childId) {
+    return _db
+        .collection(FirestorePaths.children)
+        .doc(childId)
+        .collection(FirestorePaths.teacherObservations)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => {'obsId': d.id, ...d.data()})
+            .toList());
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  AUDIT LOG
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<void> writeAuditLog(Map<String, dynamic> data) async {
+    await _db.collection(FirestorePaths.auditLog).add({
+      ...data,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
 }

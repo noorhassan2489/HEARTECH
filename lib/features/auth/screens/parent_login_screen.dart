@@ -26,7 +26,13 @@ class _ParentLoginScreenState extends State<ParentLoginScreen> {
         _passwordController.text,
       );
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.parentDashboard);
+        final user = _authService.currentUser;
+        if (user != null) {
+          Navigator.pushReplacementNamed(
+            context, AppRouter.authCheck,
+            arguments: {'uid': user.uid},
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -44,7 +50,10 @@ class _ParentLoginScreenState extends State<ParentLoginScreen> {
     try {
       final userCred = await _authService.signInWithGoogle();
       if (userCred != null && mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.parentDashboard);
+        Navigator.pushReplacementNamed(
+          context, AppRouter.authCheck,
+          arguments: {'uid': userCred.user!.uid},
+        );
       }
     } catch (e) {
       if (mounted) {

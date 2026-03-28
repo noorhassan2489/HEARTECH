@@ -1,239 +1,311 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
-import '../models/notification_item.dart';
+import '../../../core/di/providers.dart';
+import '../../../shared/models/notification_model.dart';
 
-class NotificationCenterScreen extends StatefulWidget {
+class NotificationCenterScreen extends ConsumerWidget {
   const NotificationCenterScreen({super.key});
 
   @override
-  State<NotificationCenterScreen> createState() => _NotificationCenterScreenState();
-}
-
-class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
-  // Mock data until Firestore stream is wired up
-  final List<NotificationItem> _mockItems = [
-    NotificationItem(
-      id: "1",
-      type: "HCW-02",
-      title: "Profile Linked",
-      body: "Sarah Thompson has linked Emma's profile.",
-      read: false,
-      createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
-      priority: "normal",
-      navigationRoute: "/child/123",
-    ),
-    NotificationItem(
-      id: "2",
-      type: "PAR-04",
-      title: "Risk Level Upgraded",
-      body: "Based on recent observations, Noah's risk level is now High.",
-      read: false,
-      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-      priority: "high",
-      navigationRoute: "/child/456",
-    ),
-    NotificationItem(
-      id: "3",
-      type: "HCW-06",
-      title: "Follow-up Due",
-      body: "Emma is due for a follow-up screening this week.",
-      read: true,
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      priority: "normal",
-      navigationRoute: "/child/123",
-    ),
-  ];
-
-  void _markAllRead() {
-    setState(() {
-      for (var item in _mockItems) {
-        // Create new item with read=true (since fields are final)
-        final index = _mockItems.indexOf(item);
-        if (!item.read) {
-          _mockItems[index] = NotificationItem(
-            id: item.id,
-            type: item.type,
-            title: item.title,
-            body: item.body,
-            read: true,
-            createdAt: item.createdAt,
-            priority: item.priority,
-            navigationRoute: item.navigationRoute,
-          );
-        }
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final unreadCount = _mockItems.where((i) => !i.read).length;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final notifsAsync = ref.watch(notificationsStreamProvider(uid));
+    final notifRepo = ref.read(notificationRepositoryProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: Text("Notifications", style: AppTheme.heading2),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        title: Text('Notifications', style: AppTheme.heading2),
+        centerTitle: true,
         actions: [
-          if (unreadCount > 0)
-            TextButton(
-              onPressed: _markAllRead,
-              style: TextButton.styleFrom(foregroundColor: AppTheme.primaryTeal),
-              child: const Text("Mark All Read"),
-            ),
+          notifsAsync.when(
+            data: (list) {
+              final hasUnread = list.any((n) => !n.read);
+              if (!hasUnread) return const SizedBox.shrink();
+              return TextButton(
+                onPressed: () => notifRepo.markAllRead(uid),
+                child: Text('Mark All Read', style: AppTheme.caption.copyWith(color: AppTheme.primaryTeal, fontWeight: FontWeight.bold)),
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
         ],
       ),
-      body: _mockItems.isEmpty
-          ? _buildEmptyState()
-          : ListView.builder(
-              itemCount: _mockItems.length,
-              itemBuilder: (context, index) {
-                final item = _mockItems[index];
-                return _NotificationTile(item: item);
+      body: notifsAsync.when(
+        data: (notifications) {
+          if (notifications.isEmpty) {
+            return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.notifications_none, size: 64, color: AppTheme.textSecondary.withValues(alpha: 0.4)),
+                const SizedBox(height: 16),
+                Text('All caught up!', style: AppTheme.heading2.copyWith(color: AppTheme.textSecondary)),
+                const SizedBox(height: 8),
+                Text('No notifications yet.', style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary)),
+              ]),
+            );
+          }
+
+          // Group by date
+          final grouped = _groupByDate(notifications);
+
+          return RefreshIndicator(
+            color: AppTheme.primaryTeal,
+            onRefresh: () async {
+              // Riverpod will auto-refresh the stream
+            },
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: grouped.length,
+              itemBuilder: (ctx, groupIndex) {
+                final group = grouped[groupIndex];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Sticky Date Header
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      child: Text(
+                        group.label,
+                        style: AppTheme.caption.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textSecondary,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ),
+                    ...group.notifications.map((notif) => _NotifItem(
+                      notif: notif,
+                      onSwipeRight: () => notifRepo.markRead(uid, notif.notifId),
+                      onSwipeLeft: () => notifRepo.deleteNotification(uid, notif.notifId),
+                      onTap: () {
+                        notifRepo.markRead(uid, notif.notifId);
+                        if (notif.navigationRoute.isNotEmpty && notif.navigationRoute != '/') {
+                          Navigator.pushNamed(context, notif.navigationRoute);
+                        }
+                      },
+                    )),
+                  ],
+                );
               },
             ),
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+      ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryPale,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.notifications_off_outlined, size: 48, color: AppTheme.primaryTeal),
-          ),
-          const SizedBox(height: 24),
-          Text("All caught up!", style: AppTheme.heading2),
-          const SizedBox(height: 8),
-          Text(
-            "No new notifications at this time.",
-            style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary),
-          ),
-        ],
-      ),
-    );
+  List<_NotifGroup> _groupByDate(List<NotificationModel> notifs) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    final todayList = <NotificationModel>[];
+    final yesterdayList = <NotificationModel>[];
+    final earlierList = <NotificationModel>[];
+
+    for (final n in notifs) {
+      final nDate = DateTime(n.createdAt.year, n.createdAt.month, n.createdAt.day);
+      if (nDate == today) {
+        todayList.add(n);
+      } else if (nDate == yesterday) {
+        yesterdayList.add(n);
+      } else {
+        earlierList.add(n);
+      }
+    }
+
+    final groups = <_NotifGroup>[];
+    if (todayList.isNotEmpty) groups.add(_NotifGroup('TODAY', todayList));
+    if (yesterdayList.isNotEmpty) groups.add(_NotifGroup('YESTERDAY', yesterdayList));
+    if (earlierList.isNotEmpty) groups.add(_NotifGroup('EARLIER', earlierList));
+    return groups;
   }
 }
 
-class _NotificationTile extends StatelessWidget {
-  final NotificationItem item;
+class _NotifGroup {
+  final String label;
+  final List<NotificationModel> notifications;
+  _NotifGroup(this.label, this.notifications);
+}
 
-  const _NotificationTile({required this.item});
+// ═══════════════════════════════════════════════════════════════
+//  NOTIFICATION ITEM WIDGET
+// ═══════════════════════════════════════════════════════════════
 
-  // Determines color based on spec
-  Color _getBorderColor() {
-    final t = item.type;
-    if (["HCW-05", "PAR-04", "TCH-03", "HCW-09", "PAR-10", "TCH-06", "PAR-06"].contains(t)) return AppTheme.accentCoral;
-    if (["HCW-01", "HCW-06", "PAR-09", "TCH-07", "TCH-02"].contains(t)) return Colors.orange;
-    if (["HCW-10", "PAR-01(Verify)", "TCH-05"].contains(t)) return AppTheme.safeGreen;
-    if (["HCW-03", "PAR-05", "HCW-04", "PAR-07", "TCH-08", "TCH-01"].contains(t)) return Colors.purple;
-    return AppTheme.primaryTeal;
-  }
+class _NotifItem extends StatelessWidget {
+  final NotificationModel notif;
+  final VoidCallback onSwipeRight;
+  final VoidCallback onSwipeLeft;
+  final VoidCallback onTap;
 
-  IconData _getIcon() {
-    final t = item.type;
-    if (["HCW-01", "TCH-02"].contains(t)) return Icons.schedule;
-    if (["HCW-02", "PAR-01"].contains(t)) return Icons.link;
-    if (["HCW-03", "PAR-05"].contains(t)) return Icons.school;
-    if (["HCW-04", "PAR-07", "TCH-08"].contains(t)) return Icons.assignment_outlined;
-    if (["HCW-05", "PAR-04", "TCH-03"].contains(t)) return Icons.warning_amber_rounded;
-    if (["HCW-06", "PAR-09", "TCH-07"].contains(t)) return Icons.calendar_today;
-    if (["HCW-07"].contains(t)) return Icons.family_restroom;
-    if (["HCW-08"].contains(t)) return Icons.mic;
-    if (["HCW-09", "PAR-10", "TCH-06", "PAR-06"].contains(t)) return Icons.person_off;
-    if (["HCW-10"].contains(t)) return Icons.verified_user;
-    if (["PAR-02", "PAR-03", "TCH-04"].contains(t)) return Icons.edit_note;
-    if (["PAR-08"].contains(t)) return Icons.file_download;
-    if (["TCH-01"].contains(t)) return Icons.mail_outline;
-    return Icons.notifications;
-  }
-
-  String _formatRelativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 60) return "${diff.inMinutes}m ago";
-    if (diff.inHours < 24) return "${diff.inHours}h ago";
-    if (diff.inDays == 1) return "Yesterday";
-    return "${diff.inDays}d ago";
-  }
+  const _NotifItem({
+    required this.notif,
+    required this.onSwipeRight,
+    required this.onSwipeLeft,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = _getBorderColor();
-    
+    final borderColor = _borderColorForType(notif.type);
+    final icon = _iconForType(notif.type);
+
     return Dismissible(
-      key: Key(item.id),
-      direction: DismissDirection.horizontal,
+      key: Key(notif.notifId),
       background: Container(
-        color: AppTheme.safeGreen,
+        color: AppTheme.primaryPale,
         alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 20),
-        child: const Icon(Icons.mark_chat_read, color: Colors.white),
+        padding: const EdgeInsets.only(left: 24),
+        child: const Icon(Icons.mark_email_read, color: AppTheme.primaryTeal),
       ),
       secondaryBackground: Container(
-        color: AppTheme.accentCoral,
+        color: AppTheme.accentCoral.withValues(alpha: 0.15),
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.delete, color: Colors.white),
+        padding: const EdgeInsets.only(right: 24),
+        child: const Icon(Icons.delete_outline, color: AppTheme.accentCoral),
       ),
-      onDismissed: (direction) {
-        // TODO: Handle Firestore delete or mark read based on direction
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          onSwipeRight();
+          return false; // don't remove from list, just mark read
+        } else {
+          onSwipeLeft();
+          return true; // remove from list
+        }
       },
       child: InkWell(
-        onTap: () {
-          // TODO: Mark read in Firestore
-          Navigator.pushNamed(context, item.navigationRoute);
-        },
+        onTap: onTap,
         child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           decoration: BoxDecoration(
-            color: item.read ? Colors.white : AppTheme.primaryPale,
-            border: Border(
-              left: BorderSide(color: borderColor, width: 4),
-              bottom: BorderSide(color: AppTheme.dividerColor),
-            ),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(_getIcon(), color: borderColor, size: 24),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      style: AppTheme.bodyText.copyWith(
-                        fontWeight: item.priority == 'high' ? FontWeight.w900 : FontWeight.bold,
-                        color: item.priority == 'high' ? AppTheme.accentCoral : AppTheme.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.body,
-                      style: AppTheme.caption.copyWith(color: AppTheme.textSecondary, fontSize: 13),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _formatRelativeTime(item.createdAt),
-                style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+            color: notif.read ? Colors.white : AppTheme.primaryPale,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                // Color Border
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: borderColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Icon
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: borderColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: borderColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                // Content
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          notif.title,
+                          style: AppTheme.bodyText.copyWith(
+                            fontWeight: notif.read ? FontWeight.w400 : FontWeight.w700,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          notif.body,
+                          style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _relativeTime(notif.createdAt),
+                          style: AppTheme.caption.copyWith(fontSize: 11, color: AppTheme.textSecondary.withValues(alpha: 0.7)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Unread dot
+                if (!notif.read)
+                  Container(
+                    width: 8, height: 8,
+                    margin: const EdgeInsets.only(right: 16),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primaryTeal,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  String _relativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat('MMM d').format(dt);
+  }
+
+  /// Mapping from Section 11 of Master Build Prompt
+  Color _borderColorForType(String type) {
+    // Red border (bold): HCW-05, HCW-09, PAR-04, PAR-06, TCH-03, TCH-06
+    const redTypes = {'HCW-05', 'HCW-09', 'PAR-04', 'PAR-06', 'TCH-03', 'TCH-06'};
+    // Orange border: HCW-01, HCW-06, PAR-09, PAR-10, TCH-02, TCH-07
+    const orangeTypes = {'HCW-01', 'HCW-06', 'PAR-09', 'PAR-10', 'TCH-02', 'TCH-07'};
+    // Green border: HCW-10, PAR-05, TCH-05
+    const greenTypes = {'HCW-10', 'PAR-05', 'TCH-05'};
+    // Purple border: HCW-03, HCW-04, PAR-07, TCH-01
+    const purpleTypes = {'HCW-03', 'HCW-04', 'PAR-07', 'TCH-01'};
+    // Teal border: everything else
+
+    if (redTypes.contains(type)) return AppTheme.accentCoral;
+    if (orangeTypes.contains(type)) return AppTheme.accentYellow;
+    if (greenTypes.contains(type)) return AppTheme.accentGreen;
+    if (purpleTypes.contains(type)) return const Color(0xFF8E44AD);
+    return AppTheme.primaryTeal;
+  }
+
+  IconData _iconForType(String type) {
+    if (type.contains('01') || type.contains('02')) return Icons.link;
+    if (type.contains('03') || type.contains('04')) return Icons.school;
+    if (type.contains('05')) return Icons.warning_amber_rounded;
+    if (type.contains('06')) return Icons.schedule;
+    if (type.contains('07')) return Icons.assignment;
+    if (type.contains('08')) return Icons.record_voice_over;
+    if (type.contains('09')) return Icons.remove_circle_outline;
+    if (type.contains('10')) return Icons.verified;
+    return Icons.notifications_outlined;
   }
 }

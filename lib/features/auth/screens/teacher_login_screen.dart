@@ -26,7 +26,13 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
         _passwordController.text,
       );
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.teacherDashboard);
+        final user = _authService.currentUser;
+        if (user != null) {
+          Navigator.pushReplacementNamed(
+            context, AppRouter.authCheck,
+            arguments: {'uid': user.uid},
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -44,7 +50,10 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
     try {
       final userCred = await _authService.signInWithGoogle();
       if (userCred != null && mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.teacherDashboard);
+        Navigator.pushReplacementNamed(
+          context, AppRouter.authCheck,
+          arguments: {'uid': userCred.user!.uid},
+        );
       }
     } catch (e) {
       if (mounted) {

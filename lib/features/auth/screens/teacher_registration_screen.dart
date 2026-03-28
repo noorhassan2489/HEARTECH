@@ -80,7 +80,10 @@ class _TeacherRegistrationScreenState extends State<TeacherRegistrationScreen> {
       });
 
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.teacherDashboard);
+        Navigator.pushReplacementNamed(
+          context, AppRouter.authCheck,
+          arguments: {'uid': uid},
+        );
       }
     } catch (e) {
       if (mounted) {

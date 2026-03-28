@@ -98,7 +98,10 @@ class _HCWRegistrationScreenState extends State<HCWRegistrationScreen> {
       });
 
       if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRouter.hcwDashboard);
+        Navigator.pushReplacementNamed(
+          context, AppRouter.authCheck,
+          arguments: {'uid': uid},
+        );
       }
     } catch (e) {
       if (mounted) {
