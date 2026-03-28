@@ -1,77 +1,237 @@
 import 'package:dio/dio.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:io';
+import 'package:heartech/core/constants/app_constants.dart';
+import 'package:heartech/services/firebase_auth_service.dart';
 
+/// FastAPI HTTP client with JWT auth interceptor.
 class FastApiService {
-  FastApiService._();
+  late final Dio _dio;
+  final FirebaseAuthService _authService;
 
-  // Use 10.0.2.2 for Android emulator, or localhost for iOS simulator/web
-  static const String _baseUrl = 'http://localhost:8080/api';
-  
-  static final Dio _dio = Dio(BaseOptions(
-    baseUrl: _baseUrl,
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-  ))..interceptors.add(InterceptorsWrapper(
+  FastApiService(this._authService) {
+    _dio = Dio(BaseOptions(
+      baseUrl: AppConstants.apiBaseUrl,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 30),
+      headers: {'Content-Type': 'application/json'},
+    ));
+
+    // JWT auth interceptor — attaches Firebase token to every request
+    _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final token = await user.getIdToken();
+        final token = await _authService.getIdToken();
+        if (token != null) {
           options.headers['Authorization'] = 'Bearer $token';
         }
         return handler.next(options);
       },
+      onError: (error, handler) {
+        return handler.next(error);
+      },
     ));
+  }
 
-  // Risk Scoring
-  static Future<Map<String, dynamic>> calculateRiskScore(Map<String, dynamic> data) async {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HEALTH
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<bool> healthCheck() async {
     try {
-      final response = await _dio.post('/risk-score', data: data);
-      return response.data;
-    } catch (e) {
-      throw Exception('Failed to calculate risk score: $e');
+      final response = await _dio.get('/health');
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
     }
   }
 
-  // AI Referral Generation
-  static Future<String> generateReferral(Map<String, dynamic> data) async {
-    try {
-      final response = await _dio.post('/generate-referral', data: data);
-      return response.data['referral_text'];
-    } catch (e) {
-      throw Exception('Failed to generate referral: $e');
-    }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AGE BRACKET
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> getAgeBracket(String dob) async {
+    final response = await _dio.get('/api/age-bracket/$dob');
+    return response.data;
   }
 
-  // Speech Analysis (Whisper)
-  static Future<Map<String, dynamic>> analyzeSpeech(String audioFilePath, String targetWord) async {
-    try {
-      final file = File(audioFilePath);
-      String fileName = file.path.split('/').last;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RISK SCORING
+  // ═══════════════════════════════════════════════════════════════════════════
 
-      FormData formData = FormData.fromMap({
-        "audio": await MultipartFile.fromFile(file.path, filename: fileName),
-        "target_word": targetWord,
-      });
-
-      final response = await _dio.post('/analyze-speech', data: formData);
-      return response.data;
-    } catch (e) {
-      throw Exception('Failed to analyze speech: $e');
-    }
+  Future<Map<String, dynamic>> calculateRiskScore({
+    required List<Map<String, dynamic>> answers,
+    required int ageBracket,
+    required String conductorRole,
+    String? childId,
+  }) async {
+    final response = await _dio.post('/api/risk-score', data: {
+      'answers': answers,
+      'ageBracket': ageBracket,
+      'conductorRole': conductorRole,
+      'childId': childId,
+    });
+    return response.data;
   }
 
-  // Ling Six Analysis
-  static Future<Map<String, dynamic>> analyzeLingSix(Map<String, bool> responses, double distance) async {
-    try {
-      final data = {
-        "responses": responses,
-        "distance_meters": distance,
-      };
-      final response = await _dio.post('/ling-six-analysis', data: data);
-      return response.data;
-    } catch (e) {
-      throw Exception('Failed to analyze Ling Six responses: $e');
-    }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REFERRALS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> generateReferral({
+    required String childId,
+    required String screeningId,
+  }) async {
+    final response = await _dio.post('/api/generate-referral', data: {
+      'childId': childId,
+      'screeningId': screeningId,
+    });
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> generateReferralPdf({
+    required String childId,
+    required String referralId,
+    required String letterText,
+  }) async {
+    final response = await _dio.post('/api/generate-referral-pdf', data: {
+      'childId': childId,
+      'referralId': referralId,
+      'letterText': letterText,
+    });
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HANDOVER CODE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> claimProfile({
+    required String code,
+  }) async {
+    final response = await _dio.post('/api/claim-profile', data: {
+      'code': code,
+    });
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> regenerateHandoverCode({
+    required String childId,
+  }) async {
+    final response = await _dio.post('/api/regenerate-handover-code', data: {
+      'childId': childId,
+    });
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INVITES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> inviteTeacher({
+    required String childId,
+    required String teacherEmail,
+  }) async {
+    final response = await _dio.post('/api/invite-teacher', data: {
+      'childId': childId,
+      'teacherEmail': teacherEmail,
+    });
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> cancelInvite({
+    required String inviteId,
+  }) async {
+    final response = await _dio.post('/api/cancel-invite', data: {
+      'inviteId': inviteId,
+    });
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> respondInvite({
+    required String inviteId,
+    required String action, // "accept" or "decline"
+  }) async {
+    final response = await _dio.post('/api/respond-invite', data: {
+      'inviteId': inviteId,
+      'action': action,
+    });
+    return response.data;
+  }
+
+  Future<List<dynamic>> getPendingInvites() async {
+    final response = await _dio.get('/api/pending-invites');
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REMOVE LINKS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> removeHcw({
+    required String childId,
+    required String hcwId,
+  }) async {
+    final response = await _dio.post('/api/remove-hcw', data: {
+      'childId': childId,
+      'hcwId': hcwId,
+    });
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> removeTeacher({
+    required String childId,
+  }) async {
+    final response = await _dio.post('/api/remove-teacher', data: {
+      'childId': childId,
+    });
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SPEECH
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> analyzeSpeech({
+    required String audioFilePath,
+    required String expectedWord,
+    required String childId,
+  }) async {
+    final formData = FormData.fromMap({
+      'audioFile': await MultipartFile.fromFile(audioFilePath),
+      'expectedWord': expectedWord,
+      'childId': childId,
+    });
+    final response = await _dio.post('/api/analyze-speech', data: formData);
+    return response.data;
+  }
+
+  Future<Map<String, dynamic>> analyzeLingSix({
+    required List<Map<String, dynamic>> results,
+    required String childId,
+  }) async {
+    final response = await _dio.post('/api/ling-six-analysis', data: {
+      'results': results,
+      'childId': childId,
+    });
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // QUESTIONNAIRES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> getQuestionnaire({
+    required String role,
+    required int bracketId,
+  }) async {
+    final response = await _dio.get('/api/questionnaire/$role/$bracketId');
+    return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLOUDINARY SIGNATURE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> getCloudinarySignature() async {
+    final response = await _dio.post('/api/cloudinary-signature');
+    return response.data;
   }
 }

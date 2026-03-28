@@ -1,41 +1,53 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
+import 'package:heartech/core/theme/app_theme.dart';
 
+/// Risk badge pill — Green for Low, Orange for Medium, Red for High.
 class RiskBadge extends StatelessWidget {
-  final String riskLevel; // "Low", "Medium", "High"
+  final String riskLevel;
+  final bool showScore;
+  final int? score;
+  final bool large;
 
-  const RiskBadge({super.key, required this.riskLevel});
+  const RiskBadge({
+    super.key,
+    required this.riskLevel,
+    this.showScore = false,
+    this.score,
+    this.large = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    Color badgeColor;
-    switch (riskLevel.toLowerCase()) {
-      case 'low':
-        badgeColor = AppTheme.safeGreen;
-        break;
-      case 'medium':
-        badgeColor = Colors.orange;
-        break;
-      case 'high':
-        badgeColor = AppTheme.accentCoral;
-        break;
-      default:
-        badgeColor = AppTheme.textSecondary;
-    }
+    final color = HearTechColors.riskColor(riskLevel);
+    final label = riskLevel[0].toUpperCase() + riskLevel.substring(1);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: badgeColor.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: badgeColor.withValues(alpha: 0.5)),
+      padding: EdgeInsets.symmetric(
+        horizontal: large ? 16 : 12,
+        vertical: large ? 8 : 4,
       ),
-      child: Text(
-        riskLevel,
-        style: AppTheme.caption.copyWith(
-          color: badgeColor,
-          fontWeight: FontWeight.bold,
-        ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: HearTechDecorations.badgeBorderRadius,
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: large ? 10 : 8,
+            height: large ? 10 : 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            showScore && score != null ? '$label ($score)' : '$label Risk',
+            style: HearTechTextStyles.label(color: color).copyWith(
+              fontSize: large ? 14 : 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

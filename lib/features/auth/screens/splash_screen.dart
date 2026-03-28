@@ -1,71 +1,134 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
 
-class SplashScreen extends StatefulWidget {
+/// Splash screen — HearTech ear logo, tagline, auto-routes after 2s.
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
-    _navigateToNextScreen();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    );
+    _controller.forward();
+
+    // Auto-route after 2.5 seconds
+    Future.delayed(const Duration(milliseconds: 2500), _navigate);
   }
 
-  Future<void> _navigateToNextScreen() async {
-    // Adding a short delay to show the HearTech branding
-    await Future.delayed(const Duration(seconds: 2));
-    
+  void _navigate() {
     if (!mounted) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      // If user is already logged in, we check if they are first time or have a role
-      // For now, let's route to authCheck so it can determine their dashboard
-      Navigator.pushReplacementNamed(
-        context, 
-        AppRouter.authCheck, 
-        arguments: {'uid': user.uid},
-      );
-    } else {
-      // No user, go to role selection
-      Navigator.pushReplacementNamed(context, AppRouter.roleSelect);
+    final firebaseUser = ref.read(currentFirebaseUserProvider);
+    if (firebaseUser == null) {
+      context.go(Routes.roleSelect);
+      return;
     }
+
+    // User is logged in — check their role and route accordingly
+    final userProfile = ref.read(userProfileProvider);
+    if (userProfile == null) {
+      // Profile not loaded yet — go to role select (they'll be redirected)
+      context.go(Routes.roleSelect);
+      return;
+    }
+
+    switch (userProfile.role) {
+      case 'hcw':
+        context.go(Routes.hcwDashboard);
+      case 'parent':
+        context.go(Routes.parentDashboard);
+      case 'teacher':
+        context.go(Routes.teacherDashboard);
+      default:
+        context.go(Routes.roleSelect);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.primaryTeal,
+      backgroundColor: HearTechColors.paleTeal,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Using a simple icon until we have the real logo asset
-            const Icon(
-              Icons.hearing,
-              size: 100,
-              color: Colors.white,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'HEARTECH',
-              style: AppTheme.heading1.copyWith(
-                color: Colors.white,
-                letterSpacing: 2.0,
-                fontSize: 32,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Opacity(
+              opacity: _fadeAnimation.value,
+              child: Transform.scale(
+                scale: _scaleAnimation.value,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Ear logo icon
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: HearTechColors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: HearTechColors.deepTeal.withValues(alpha: 0.15),
+                            blurRadius: 30,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.hearing,
+                        size: 64,
+                        color: HearTechColors.deepTeal,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // App name
+                    Text(
+                      'HearTech',
+                      style: HearTechTextStyles.bigNumber(
+                        color: HearTechColors.deepTeal,
+                      ).copyWith(fontSize: 32),
+                    ),
+                    const SizedBox(height: 8),
+                    // Tagline
+                    Text(
+                      'Early Hearing, Better Futures',
+                      style: HearTechTextStyles.body(
+                        color: HearTechColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );

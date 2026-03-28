@@ -1,13 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-/// Handles all Firebase Authentication operations.
+/// Firebase Authentication service — handles login, register, sign out.
 class FirebaseAuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  /// Current authenticated user (null if signed out).
+  /// Current Firebase user (null if not logged in).
   User? get currentUser => _auth.currentUser;
+
+  /// Current user UID.
+  String? get uid => _auth.currentUser?.uid;
 
   /// Stream of auth state changes.
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -20,22 +23,21 @@ class FirebaseAuthService {
     );
   }
 
-  /// Create a new account with email and password.
-  Future<UserCredential> signUpWithEmail(String email, String password) async {
+  /// Create account with email and password.
+  Future<UserCredential> createAccountWithEmail(
+      String email, String password) async {
     return await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
   }
 
-  /// Sign in with Google OAuth.
+  /// Sign in with Google.
   Future<UserCredential?> signInWithGoogle() async {
-    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    final googleUser = await _googleSignIn.signIn();
     if (googleUser == null) return null; // User cancelled
 
-    final GoogleSignInAuthentication googleAuth =
-        await googleUser.authentication;
-
+    final googleAuth = await googleUser.authentication;
     final credential = GoogleAuthProvider.credential(
       accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
@@ -45,17 +47,17 @@ class FirebaseAuthService {
   }
 
   /// Send password reset email.
-  Future<void> resetPassword(String email) async {
+  Future<void> sendPasswordResetEmail(String email) async {
     await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
-  /// Sign out from all providers.
+  /// Sign out from Firebase and Google.
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
 
-  /// Get the current user's ID token for API calls.
+  /// Get Firebase ID token for API calls.
   Future<String?> getIdToken() async {
     return await _auth.currentUser?.getIdToken();
   }

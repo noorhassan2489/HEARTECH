@@ -2,77 +2,155 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper Functions
-    function isAuth() {
+    // ═══════════════════════════════════════════════════════════════════════
+    // HELPER FUNCTIONS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(uid) {
-      return isAuth() && request.auth.uid == uid;
+      return isSignedIn() && request.auth.uid == uid;
     }
-    
-    function getRole() {
-      // Assuming role is stored in custom claims, or we fetch from /users/uid
-      // If custom claim (recommended): return request.auth.token.role;
-      // If reading from doc (costs 1 read): return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-      // For simplicity in this mock, we assume the frontend enforces it or we rely on the `users` collection.
+
+    function getUserRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    // 1. Users Collection
+    function isHCW() {
+      return isSignedIn() && getUserRole() == 'hcw';
+    }
+
+    function isParent() {
+      return isSignedIn() && getUserRole() == 'parent';
+    }
+
+    function isTeacher() {
+      return isSignedIn() && getUserRole() == 'teacher';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // USERS — /users/{uid}
+    // ═══════════════════════════════════════════════════════════════════════
+
     match /users/{uid} {
-      // Anyone can create their own profile during registration
-      allow create: if isOwner(uid);
-      // Users can read/update their own profile
-      allow read, update: if isOwner(uid);
-      // HCWs can read Parent profiles for linking (requires a query, so allow read if auth)
-      allow read: if isAuth(); // Looser rule for directory / linking features
-      allow delete: if false; // No deletion from app directly
+      // Users can read their own profile
+      allow read: if isOwner(uid);
+      // Users can create/update their own profile
+      allow create, update: if isOwner(uid);
+      // No deletes
+      allow delete: if false;
     }
 
-    // 2. Children Collection
+    // ═══════════════════════════════════════════════════════════════════════
+    // CHILDREN — /children/{childId}
+    // ═══════════════════════════════════════════════════════════════════════
+
     match /children/{childId} {
-      // Anyone authenticated can theoretically create a child (HCW creates, Parent claims)
-      allow create: if isAuth();
-      
-      // Read/Update rules based on relationship
-      allow read, update: if isAuth() && (
-        // HCW array contains user
+      // HCW can read children they created or are attached to
+      allow read: if isSignedIn() && (
         request.auth.uid in resource.data.hcwIds ||
-        // Parent array contains user
-        request.auth.uid in resource.data.parentIds ||
-        // Teacher array contains user
-        request.auth.uid in resource.data.teacherIds
+        resource.data.parentId == request.auth.uid ||
+        request.auth.uid in resource.data.get('teacherIds', [])
       );
+
+      // Only HCW can create children
+      allow create: if isHCW();
+
+      // HCW and Parent can update (with field restrictions)
+      allow update: if isSignedIn() && (
+        request.auth.uid in resource.data.hcwIds ||
+        resource.data.parentId == request.auth.uid
+      );
+
+      allow delete: if false;
+
+      // ── Screenings subcollection ──────────────────────────────────────
+      match /screenings/{screeningId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+        );
+        allow create: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid
+        );
+        allow update, delete: if false;
+      }
+
+      // ── Teacher Observations subcollection ────────────────────────────
+      match /teacherObservations/{obsId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+        );
+        allow create: if isTeacher() &&
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', []);
+        allow update, delete: if false;
+      }
+
+      // ── Referrals subcollection ───────────────────────────────────────
+      match /referrals/{referralId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid
+        );
+        allow create: if isHCW();
+        allow update, delete: if false;
+      }
+
+      // ── Speech Logs subcollection ─────────────────────────────────────
+      match /speechLogs/{logId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+        );
+        allow create: if isSignedIn() && (
+          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+        );
+        allow update, delete: if false;
+      }
     }
 
-    // 3. Screenings / Questionnaires
-    match /screenings/{screeningId} {
-      allow create: if isAuth();
-      // Only linked users to the child can read the screening
-      // This requires the screening doc to have `hcwId`, `parentId`, or we fetch the child.
-      allow read: if isAuth(); // Simplified for MVP. Ideally restrict by child's linked IDs.
+    // ═══════════════════════════════════════════════════════════════════════
+    // HCW ANONYMOUS SCREENINGS — /hcw_screenings/{screeningId}
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /hcw_screenings/{screeningId} {
+      allow read: if isHCW() && resource.data.hcwId == request.auth.uid;
+      allow create: if isHCW();
+      allow update, delete: if false;
     }
 
-    // 4. Notifications
-    match /notifications/{uid}/items/{notificationId} {
-      // Only the specific user can read/update their notifications
-      allow read, update: if isOwner(uid);
-      // System/Backend (admin SDK) will create these, flutter app shouldn't create them directly
-      allow create: if isOwner(uid); 
-      allow delete: if isOwner(uid);
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // INVITES — /invites/{inviteId}
+    // ═══════════════════════════════════════════════════════════════════════
 
-    // 5. Invites
     match /invites/{inviteId} {
-      // Authenticated users can create invites
-      allow create: if isAuth();
-      // Read/update if you are the sender or receiver
-      allow read, update: if isAuth() && (
-        request.auth.uid == resource.data.senderId ||
-        request.auth.uid == resource.data.receiverId ||
-        request.auth.token.email == resource.data.receiverEmail
+      // Parent who created or teacher who received can read
+      allow read: if isSignedIn() && (
+        resource.data.parentId == request.auth.uid ||
+        resource.data.teacherEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
       );
+      allow create: if isParent();
+      allow update: if isSignedIn(); // Teacher accepts/declines
+      allow delete: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NOTIFICATIONS — /notifications/{uid}/items/{notifId}
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /notifications/{uid}/items/{notifId} {
+      allow read: if isOwner(uid);
+      allow create: if true; // Backend (admin SDK) creates these
+      allow update: if isOwner(uid); // User marks as read
+      allow delete: if isOwner(uid); // User deletes
     }
   }
 }

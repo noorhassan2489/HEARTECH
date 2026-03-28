@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Teacher invite record — stored under /invites/{inviteId}
 class InviteModel {
   final String inviteId;
   final String childId;
@@ -7,54 +8,66 @@ class InviteModel {
   final String parentUid;
   final String parentName;
   final String teacherEmail;
-  final String teacherUid; // can be empty string if teacher hasn't registered yet
-  final String status; // 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
+  final String? teacherUid;
+  final String status; // pending, accepted, declined, cancelled, expired
   final DateTime createdAt;
   final DateTime expiresAt;
   final bool inviteExpirySent;
 
-  InviteModel({
+  const InviteModel({
     required this.inviteId,
     required this.childId,
     required this.childName,
     required this.parentUid,
     required this.parentName,
     required this.teacherEmail,
-    required this.teacherUid,
-    required this.status,
+    this.teacherUid,
+    this.status = 'pending',
     required this.createdAt,
     required this.expiresAt,
-    required this.inviteExpirySent,
+    this.inviteExpirySent = false,
   });
 
-  factory InviteModel.fromMap(Map<String, dynamic> map, String documentId) {
+  factory InviteModel.fromJson(Map<String, dynamic> json) {
     return InviteModel(
-      inviteId: documentId,
-      childId: map['childId'] ?? '',
-      childName: map['childName'] ?? '',
-      parentUid: map['parentUid'] ?? '',
-      parentName: map['parentName'] ?? '',
-      teacherEmail: map['teacherEmail'] ?? '',
-      teacherUid: map['teacherUid'] ?? '',
-      status: map['status'] ?? 'pending',
-      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      expiresAt: (map['expiresAt'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(hours: 72)),
-      inviteExpirySent: map['inviteExpirySent'] ?? false,
+      inviteId: json['inviteId'] as String? ?? '',
+      childId: json['childId'] as String? ?? '',
+      childName: json['childName'] as String? ?? '',
+      parentUid: json['parentUid'] as String? ?? '',
+      parentName: json['parentName'] as String? ?? '',
+      teacherEmail: json['teacherEmail'] as String? ?? '',
+      teacherUid: json['teacherUid'] as String?,
+      status: json['status'] as String? ?? 'pending',
+      createdAt: _parseTimestamp(json['createdAt']),
+      expiresAt: _parseTimestamp(json['expiresAt']),
+      inviteExpirySent: json['inviteExpirySent'] as bool? ?? false,
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'childId': childId,
-      'childName': childName,
-      'parentUid': parentUid,
-      'parentName': parentName,
-      'teacherEmail': teacherEmail,
-      'teacherUid': teacherUid,
-      'status': status,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'expiresAt': Timestamp.fromDate(expiresAt),
-      'inviteExpirySent': inviteExpirySent,
-    };
+  Map<String, dynamic> toJson() => {
+        'inviteId': inviteId,
+        'childId': childId,
+        'childName': childName,
+        'parentUid': parentUid,
+        'parentName': parentName,
+        'teacherEmail': teacherEmail,
+        'teacherUid': teacherUid,
+        'status': status,
+        'createdAt': Timestamp.fromDate(createdAt),
+        'expiresAt': Timestamp.fromDate(expiresAt),
+        'inviteExpirySent': inviteExpirySent,
+      };
+
+  bool get isPending => status == 'pending';
+  bool get isAccepted => status == 'accepted';
+  bool get isExpired =>
+      status == 'expired' || DateTime.now().isAfter(expiresAt);
+  Duration get timeRemaining => expiresAt.difference(DateTime.now());
+
+  static DateTime _parseTimestamp(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.parse(value);
+    return DateTime.now();
   }
 }

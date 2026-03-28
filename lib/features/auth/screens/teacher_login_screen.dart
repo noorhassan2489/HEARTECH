@@ -1,43 +1,64 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
-import '../../../services/firebase_auth_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/heartech_input_field.dart';
 
-class TeacherLoginScreen extends StatefulWidget {
+/// Teacher Login Screen
+class TeacherLoginScreen extends ConsumerStatefulWidget {
   const TeacherLoginScreen({super.key});
 
   @override
-  State<TeacherLoginScreen> createState() => _TeacherLoginScreenState();
+  ConsumerState<TeacherLoginScreen> createState() => _TeacherLoginScreenState();
 }
 
-class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
+class _TeacherLoginScreenState extends ConsumerState<TeacherLoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _authService = FirebaseAuthService();
+  bool _obscurePassword = true;
   bool _isLoading = false;
 
-  Future<void> _handleLogin() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) return;
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
+  Future<void> _signIn() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
+
     try {
-      await _authService.signInWithEmail(
-        _emailController.text,
+      final authService = ref.read(firebaseAuthServiceProvider);
+      await authService.signInWithEmail(
+        _emailController.text.trim(),
         _passwordController.text,
       );
       if (mounted) {
-        final user = _authService.currentUser;
+        final firestoreService = ref.read(firestoreServiceProvider);
+        final user = authService.currentUser;
         if (user != null) {
-          Navigator.pushReplacementNamed(
-            context, AppRouter.authCheck,
-            arguments: {'uid': user.uid},
-          );
+          final profile = await firestoreService.getUser(user.uid);
+          if (profile != null && mounted) {
+            context.go(Routes.teacherDashboard);
+          } else if (mounted) {
+            context.go(Routes.teacherRegister);
+          }
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
+          SnackBar(
+            content: Text(_getErrorMessage(e.toString())),
+            backgroundColor: HearTechColors.coralRed,
+          ),
         );
       }
     } finally {
@@ -45,104 +66,132 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
     }
   }
 
-  Future<void> _handleGoogleSignIn() async {
+  Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      final userCred = await _authService.signInWithGoogle();
-      if (userCred != null && mounted) {
-        Navigator.pushReplacementNamed(
-          context, AppRouter.authCheck,
-          arguments: {'uid': userCred.user!.uid},
-        );
+      final authService = ref.read(firebaseAuthServiceProvider);
+      final result = await authService.signInWithGoogle();
+      if (result != null && mounted) {
+        final firestoreService = ref.read(firestoreServiceProvider);
+        final profile = await firestoreService.getUser(result.user!.uid);
+        if (profile != null && mounted) {
+          context.go(Routes.teacherDashboard);
+        } else if (mounted) {
+          context.go(Routes.teacherRegister);
+        }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Google Sign-In Error: ${e.toString()}')),
+          SnackBar(content: Text('Google sign-in failed'), backgroundColor: HearTechColors.coralRed),
         );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your email first')),
+      );
+      return;
+    }
+    try {
+      await ref.read(firebaseAuthServiceProvider).sendPasswordResetEmail(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reset email sent!'), backgroundColor: HearTechColors.green),
+        );
+      }
+    } catch (_) {}
+  }
+
+  String _getErrorMessage(String error) {
+    if (error.contains('user-not-found')) return 'No account found.';
+    if (error.contains('wrong-password')) return 'Incorrect password.';
+    return 'Login failed. Please try again.';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(),
+      backgroundColor: HearTechColors.background,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(
-                Icons.school,
-                size: 60,
-                color: AppTheme.primaryTeal,
-              ),
-              const SizedBox(height: 24),
-              Text("Teacher Portal", style: AppTheme.heading1),
-              const SizedBox(height: 8),
-              Text(
-                "Sign in to access classroom hearing observations.",
-                style: AppTheme.subtitle,
-              ),
-              const SizedBox(height: 40),
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
+                const SizedBox(height: 40),
+                Icon(Icons.school_outlined, size: 64, color: HearTechColors.deepTeal)
+                    .animate().fadeIn(duration: 300.ms)
+                    .scale(begin: const Offset(0.5, 0.5), end: const Offset(1, 1),
+                        duration: 400.ms, curve: Curves.elasticOut),
+                const SizedBox(height: 16),
+                Text('Teacher Portal', style: HearTechTextStyles.screenTitle()),
+                const SizedBox(height: 8),
+                Text('Sign in to manage classroom observations',
+                    style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
+                const SizedBox(height: 40),
 
-              // Email Field
-              TextField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: AppTheme.inputDecoration("Email Address", Icons.email_outlined),
-              ),
-              const SizedBox(height: 20),
-
-              // Password Field
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: AppTheme.inputDecoration("Password", Icons.lock_outline),
-              ),
-              
-              // Forgot Password
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {},
-                  child: Text("Forgot Password?", style: TextStyle(color: AppTheme.primaryTeal)),
+                HearTechInputField(
+                  controller: _emailController, label: 'Email',
+                  prefixIcon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  validator: (v) => (v == null || v.isEmpty) ? 'Enter your email' : (!v.contains('@') ? 'Invalid email' : null),
                 ),
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 16),
 
-              // Login Button
-              ElevatedButton(
-                style: AppTheme.primaryButton,
-                onPressed: _isLoading ? null : _handleLogin,
-                child: _isLoading 
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                    : const Text("Sign In"),
-              ),
-              const SizedBox(height: 16),
-
-              // Google Sign In Button
-              OutlinedButton.icon(
-                style: AppTheme.secondaryButton,
-                onPressed: _isLoading ? null : _handleGoogleSignIn,
-                icon: Image.asset('assets/images/google_logo.png', height: 24, errorBuilder: (c, e, s) => const Icon(Icons.g_mobiledata, size: 24)),
-                label: const Text("Sign in with Google"),
-              ),
-              const SizedBox(height: 32),
-
-              // Create Account Link
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, AppRouter.teacherRegister),
-                child: Text(
-                  "Don't have an account? Create Teacher Profile",
-                  style: TextStyle(color: AppTheme.primaryTeal, fontWeight: FontWeight.w700),
+                HearTechInputField(
+                  controller: _passwordController, label: 'Password',
+                  prefixIcon: Icons.lock_outline, obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _signIn(),
+                  suffix: IconButton(
+                    icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'Enter your password' : null,
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _forgotPassword,
+                    child: Text('Forgot Password?', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                HearTechButton(label: 'Sign In', onPressed: _signIn, isLoading: _isLoading),
+                const SizedBox(height: 16),
+                HearTechButton(label: 'Sign in with Google', onPressed: _signInWithGoogle, isSecondary: true, icon: Icons.g_mobiledata),
+                const SizedBox(height: 24),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text("Don't have an account? ", style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
+                    GestureDetector(
+                      onTap: () => context.go(Routes.teacherRegister),
+                      child: Text('Create Teacher Profile', style: HearTechTextStyles.body(color: HearTechColors.deepTeal).copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextButton.icon(
+                  onPressed: () => context.go(Routes.roleSelect),
+                  icon: const Icon(Icons.arrow_back, size: 16),
+                  label: const Text('Back to role selection'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

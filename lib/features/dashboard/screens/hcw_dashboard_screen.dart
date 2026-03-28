@@ -1,261 +1,271 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
-import '../../../core/di/providers.dart';
-import '../../../shared/widgets/summary_card.dart';
-import '../../../shared/widgets/child_card.dart';
-import '../../notifications/widgets/notification_bell.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/summary_card.dart';
+import 'package:heartech/shared/widgets/child_card.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/loading_indicator.dart';
+import 'package:heartech/shared/widgets/bell_icon_with_badge.dart';
+import 'package:heartech/shared/widgets/bottom_nav_bar.dart';
+import 'package:intl/intl.dart';
 
-class HCWDashboardScreen extends ConsumerWidget {
-  const HCWDashboardScreen({super.key});
+/// HCW Dashboard — greeting, stats, recent patients, quick actions.
+/// Bottom nav: Home | Patients | Notifications | Profile
+class HcwDashboardScreen extends ConsumerStatefulWidget {
+  const HcwDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  ConsumerState<HcwDashboardScreen> createState() => _HcwDashboardScreenState();
+}
+
+class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
+  final int _navIndex = 0;
+
+  void _onNavTap(int index) {
+    switch (index) {
+      case 0: break; // already on home
+      case 1: context.go(Routes.hcwPatients); break;
+      case 2: context.go(Routes.hcwNotifications); break;
+      case 3: context.go(Routes.hcwProfile); break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final userAsync = ref.watch(currentUserProfileProvider);
-    final childrenAsync = ref.watch(childrenStreamProvider((uid: uid, role: 'hcw')));
-    final unread = ref.watch(unreadNotificationCountProvider(uid));
+    final childrenAsync = ref.watch(hcwChildrenProvider);
 
-    final userName = userAsync.when(
-      data: (u) => u?.name ?? 'Doctor',
-      loading: () => '...',
-      error: (_, __) => 'Doctor',
-    );
+    return userAsync.when(
+      loading: () => const Scaffold(body: LoadingIndicator(message: 'Loading dashboard...')),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (user) {
+        if (user == null) {
+          return const Scaffold(body: LoadingIndicator(message: 'Loading profile...'));
+        }
 
-    final isVerified = userAsync.when(
-      data: (u) => u?.isVerified ?? true,
-      loading: () => true,
-      error: (_, __) => true,
-    );
-
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Header ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+        return Scaffold(
+          backgroundColor: HearTechColors.background,
+          bottomNavigationBar: HearTechBottomNavBar(
+            currentIndex: _navIndex,
+            onTap: _onNavTap,
+            role: 'hcw',
+          ),
+          body: SafeArea(
+            child: RefreshIndicator(
+              color: HearTechColors.deepTeal,
+              onRefresh: () async {
+                ref.invalidate(hcwChildrenProvider);
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header ──────────────────────────────────────────
+                    Row(
                       children: [
-                        Text('Good morning,', style: AppTheme.subtitle),
-                        const SizedBox(height: 4),
-                        Text('Dr. $userName', style: AppTheme.heading1),
+                        AvatarCircle(
+                          name: user.name,
+                          photoUrl: user.profilePhotoUrl,
+                          radius: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Good ${_greeting()}, ${user.title ?? ''} ${user.firstName}',
+                                style: HearTechTextStyles.sectionHeader(),
+                              ),
+                              Text(
+                                DateFormat('EEEE, d MMMM').format(DateTime.now()),
+                                style: HearTechTextStyles.caption(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        BellIconWithBadge(
+                          uid: user.uid,
+                          onTap: () => context.go(Routes.hcwNotifications),
+                        ),
+                      ],
+                    ).animate().fadeIn(duration: 300.ms),
+                    const SizedBox(height: 24),
+
+                    // ── Verification warning (if unverified) ─────────
+                    if (user.isVerified == false)
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: HearTechColors.warmOrange.withValues(alpha: 0.1),
+                          borderRadius: HearTechDecorations.cardBorderRadius,
+                          border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.pending_outlined, color: HearTechColors.warmOrange, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Your license is pending verification. Some features are restricted until your account is approved.',
+                                style: HearTechTextStyles.caption(color: HearTechColors.warmOrange),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ).animate().fadeIn(duration: 300.ms),
+
+                    // ── Stats row (4 cards) ──────────────────────────
+                    childrenAsync.when(
+                      loading: () => const SizedBox.shrink(),
+                      error: (e, _) => const SizedBox.shrink(),
+                      data: (children) {
+                        final total = children.length;
+                        final highRisk = children.where((c) => c.riskLevel == 'high').length;
+                        // Screenings this week placeholder (count children screened in last 7 days)
+                        final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+                        final screenedThisWeek = children.where((c) =>
+                            c.lastScreeningDate != null && c.lastScreeningDate!.isAfter(weekAgo)).length;
+                        final unclaimed = children.where((c) => !c.isClaimed).length;
+
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 140,
+                                child: SummaryCard(icon: Icons.people, value: '$total', label: 'Total Patients'),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 140,
+                                child: SummaryCard(icon: Icons.warning_amber, value: '$highRisk',
+                                    label: 'High Risk', iconColor: HearTechColors.coralRed),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 140,
+                                child: SummaryCard(icon: Icons.assignment_turned_in, value: '$screenedThisWeek',
+                                    label: 'This Week', iconColor: HearTechColors.green),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 140,
+                                child: SummaryCard(icon: Icons.schedule, value: '$unclaimed',
+                                    label: 'Pending Referrals', iconColor: HearTechColors.warmOrange),
+                              ),
+                            ],
+                          ),
+                        ).animate(delay: 100.ms).fadeIn(duration: 300.ms);
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // ── New Screening button (full width) ────────────
+                    HearTechButton(
+                      label: 'New Screening',
+                      onPressed: () => context.go(Routes.hcwNewScreening),
+                    ),
+                    const SizedBox(height: 12),
+                    HearTechButton(
+                      label: 'View My Patients',
+                      onPressed: () => context.go(Routes.hcwPatients),
+                      isSecondary: true,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // ── Recent Activity ──────────────────────────────
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Recent Activity', style: HearTechTextStyles.sectionHeader()),
+                        TextButton(
+                          onPressed: () => context.go(Routes.hcwPatients),
+                          child: Text('See All', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
+                        ),
                       ],
                     ),
-                  ),
-                  Row(children: [
-                    NotificationBell(unreadCount: unread),
-                    const SizedBox(width: 12),
-                    GestureDetector(
-                      onTap: () => _showLogoutSheet(context),
-                      child: CircleAvatar(
-                        radius: 22,
-                        backgroundColor: AppTheme.primaryPale,
-                        child: Text(
-                          userName.isNotEmpty ? userName[0].toUpperCase() : 'D',
-                          style: AppTheme.heading2.copyWith(color: AppTheme.primaryTeal),
-                        ),
-                      ),
+                    const SizedBox(height: 8),
+                    childrenAsync.when(
+                      loading: () => const LoadingIndicator(),
+                      error: (e, _) => Text('Error: $e'),
+                      data: (children) {
+                        if (children.isEmpty) {
+                          return Container(
+                            padding: const EdgeInsets.all(32),
+                            decoration: HearTechDecorations.cardDecoration,
+                            child: Column(
+                              children: [
+                                Icon(Icons.child_care, size: 48, color: HearTechColors.deepTeal.withValues(alpha: 0.4)),
+                                const SizedBox(height: 12),
+                                Text('No patients yet', style: HearTechTextStyles.subtitle()),
+                                const SizedBox(height: 4),
+                                Text('Start a screening to add your first patient.',
+                                    style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: 180,
+                                  child: HearTechButton(
+                                    label: 'New Screening',
+                                    onPressed: () => context.go(Routes.hcwNewScreening),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        // Show latest 5
+                        final sorted = [...children]
+                          ..sort((a, b) => b.lastUpdatedAt.compareTo(a.lastUpdatedAt));
+                        final recent = sorted.take(5).toList();
+
+                        return Column(
+                          children: recent.asMap().entries.map((entry) {
+                            final child = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: ChildCard(
+                                name: child.name,
+                                ageString: child.ageString,
+                                riskLevel: child.riskLevel,
+                                riskScore: child.riskScore,
+                                photoUrl: child.profilePhotoUrl,
+                                showScore: true,
+                                onTap: () => context.go(
+                                  Routes.hcwChildProfile.replaceFirst(':childId', child.childId),
+                                ),
+                              ).animate(delay: (300 + entry.key * 80).ms)
+                                  .fadeIn(duration: 250.ms)
+                                  .slideX(begin: -0.1, end: 0, duration: 250.ms),
+                            );
+                          }).toList(),
+                        );
+                      },
                     ),
-                  ]),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // ── Verification Warning ──
-              if (!isVerified)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accentYellow.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.accentYellow.withValues(alpha: 0.5)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, color: AppTheme.accentYellow, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Your license is pending verification. Some features are restricted.',
-                          style: AppTheme.bodyText.copyWith(color: Colors.orange.shade900),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // ── Stats Row ──
-              childrenAsync.when(
-                data: (children) {
-                  final highRisk = children.where((c) => c.riskLevel == 'high').length;
-                  return Row(
-                    children: [
-                      Expanded(child: SummaryCard(
-                        title: 'Total\nPatients', value: '${children.length}',
-                        icon: Icons.people_outline, color: AppTheme.primaryTeal,
-                      )),
-                      const SizedBox(width: 16),
-                      Expanded(child: SummaryCard(
-                        title: 'High Risk\nPatients', value: '$highRisk',
-                        icon: Icons.warning_amber_rounded, color: AppTheme.accentCoral,
-                      )),
-                    ],
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (_, __) => Row(
-                  children: [
-                    Expanded(child: SummaryCard(title: 'Total\nPatients', value: '0', icon: Icons.people_outline, color: AppTheme.primaryTeal)),
-                    const SizedBox(width: 16),
-                    Expanded(child: SummaryCard(title: 'High Risk\nPatients', value: '0', icon: Icons.warning_amber_rounded, color: AppTheme.accentCoral)),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
-
-              const SizedBox(height: 24),
-
-              // ── Quick Actions ──
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: AppTheme.primaryButton.copyWith(
-                        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 20)),
-                      ),
-                      onPressed: () => Navigator.pushNamed(context, AppRouter.newScreening, arguments: {'role': 'hcw'}),
-                      icon: const Icon(Icons.hearing, size: 24),
-                      label: const Text('New Screening'),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: AppTheme.secondaryButton.copyWith(
-                        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 20)),
-                      ),
-                      onPressed: () {}, // TODO: My Patients screen
-                      icon: const Icon(Icons.folder_shared_outlined, size: 24),
-                      label: const Text('My Patients'),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── Recent Activity ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Recent Activity', style: AppTheme.heading2),
-                  TextButton(onPressed: () {}, child: Text('View All', style: TextStyle(color: AppTheme.primaryTeal))),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              childrenAsync.when(
-                data: (children) {
-                  if (children.isEmpty) {
-                    return Container(
-                      padding: const EdgeInsets.all(32),
-                      decoration: AppTheme.cardDecoration,
-                      child: Column(children: [
-                        Icon(Icons.history, size: 48, color: AppTheme.textSecondary.withValues(alpha: 0.5)),
-                        const SizedBox(height: 16),
-                        Text('No patients yet. Conduct a screening to get started.',
-                            style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary)),
-                      ]),
-                    );
-                  }
-                  return Column(
-                    children: children.take(5).map((child) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ChildCard(
-                        childId: child.childId,
-                        name: child.name,
-                        ageMonths: DateTime.now().difference(child.dob).inDays ~/ 30,
-                        riskLevel: child.riskLevel.isNotEmpty
-                            ? child.riskLevel[0].toUpperCase() + child.riskLevel.substring(1)
-                            : 'Low',
-                        onTap: () => Navigator.pushNamed(context, AppRouter.childProfile,
-                            arguments: {'childId': child.childId, 'viewerRole': 'hcw'}),
-                      ),
-                    )).toList(),
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (_, __) => const Text('Error loading patients'),
-              ),
-
-              // ── Disclaimer ──
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryPale.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'HearTech is a screening tool, not a medical diagnosis. Always consult a qualified healthcare professional.',
-                  style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  void _showLogoutSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Sign Out?', style: AppTheme.heading2),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.accentCoral,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 52),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            ),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (ctx.mounted) {
-                Navigator.of(ctx).pushNamedAndRemoveUntil(
-                  AppRouter.roleSelect,
-                  (route) => false, // Remove ALL routes from the stack
-                );
-              }
-            },
-            child: const Text('Sign Out'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-        ]),
-      ),
-    );
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Morning';
+    if (hour < 17) return 'Afternoon';
+    return 'Evening';
   }
 }

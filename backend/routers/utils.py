@@ -1,58 +1,58 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
-from firebase_admin import auth
+from fastapi import APIRouter
+from datetime import datetime, date
 
 router = APIRouter()
 
-class TokenRequest(BaseModel):
-    token: str
 
-class TokenResponse(BaseModel):
-    uid: str
-    email: Optional[str] = None
-    role: Optional[str] = None
-
-@router.post("/verify-token", response_model=TokenResponse)
-async def verify_token(req: TokenRequest):
+@router.get("/age-bracket/{dob}")
+async def get_age_bracket(dob: str):
+    """
+    Compute age bracket from date of birth string (YYYY-MM-DD).
+    Returns bracket number (1-5), label, and age in months.
+    """
     try:
-        decoded_token = auth.verify_id_token(req.token)
-        uid = decoded_token.get('uid')
-        email = decoded_token.get('email')
-        
-        # If custom claims are used for roles
-        role = decoded_token.get('role')
-        
-        return TokenResponse(uid=uid, email=email, role=role)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
-
-@router.get("/age-bracket/{dob_str}")
-async def get_age_bracket(dob_str: str):
-    # expect format YYYY-MM-DD
-    try:
-        dob = datetime.strptime(dob_str, "%Y-%m-%d")
-        now = datetime.now()
-        
-        days = (now - dob).days
-        months = days / 30.44
-        
-        if months <= 6:
-            bracket = "0-6 months"
-        elif months <= 12:
-            bracket = "6-12 months"
-        elif months <= 24:
-            bracket = "1-2 years"
-        elif months <= 36:
-            bracket = "2-3 years"
-        else:
-            bracket = "3+ years"
-            
-        return {
-            "dob": dob_str,
-            "age_months": round(months, 1),
-            "age_bracket": bracket
-        }
+        birth_date = date.fromisoformat(dob)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+        return {"error": "Invalid date format. Use YYYY-MM-DD."}
+
+    today = date.today()
+    age_months = (today.year - birth_date.year) * 12 + (today.month - birth_date.month)
+    if today.day < birth_date.day:
+        age_months -= 1
+
+    age_years = age_months / 12
+
+    if age_months <= 6:
+        bracket = 1
+        label = "0-6 months"
+    elif age_months <= 12:
+        bracket = 2
+        label = "7-12 months"
+    elif age_years <= 2:
+        bracket = 3
+        label = "1-2 years"
+    elif age_years <= 5:
+        bracket = 4
+        label = "3-5 years"
+    else:
+        bracket = 5
+        label = "6-12 years"
+
+    return {
+        "bracket": bracket,
+        "label": label,
+        "ageMonths": age_months,
+        "ageYears": round(age_years, 1),
+    }
+
+
+@router.post("/cloudinary-signature")
+async def cloudinary_signature():
+    """
+    Generate signed upload parameters for Cloudinary.
+    TODO: Implement with Cloudinary SDK in Phase 3.
+    """
+    return {
+        "timestamp": int(datetime.now().timestamp()),
+        "signature": "placeholder_signature",
+    }

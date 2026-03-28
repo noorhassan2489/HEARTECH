@@ -1,162 +1,140 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:heartech/core/di/providers.dart';
 
-import '../../features/auth/screens/role_selection_screen.dart';
-import '../../features/auth/screens/splash_screen.dart';
-import '../../features/auth/screens/first_time_login_check_screen.dart';
-import '../../features/auth/screens/parent_login_screen.dart';
-import '../../features/auth/screens/hw_login_screen.dart';
-import '../../features/auth/screens/teacher_login_screen.dart';
-import '../../features/auth/screens/parent_registration_screen.dart';
-import '../../features/auth/screens/hcw_registration_screen.dart';
-import '../../features/auth/screens/teacher_registration_screen.dart';
-import '../theme/page_transitions.dart';
-import '../../features/dashboard/screens/hcw_dashboard_screen.dart';
-import '../../features/dashboard/screens/parent_dashboard_screen.dart';
-import '../../features/dashboard/screens/teacher_dashboard_screen.dart';
-import '../../features/notifications/screens/notification_center_screen.dart';
-import '../../features/screening/screens/screening_flow_screen.dart';
-import '../../features/child_profile/screens/child_profile_creation_screen.dart';
-import '../../features/child_profile/screens/child_profile_dashboard.dart';
-import '../../features/screening/screens/screening_result_screen.dart';
-import '../../features/speech/screens/speech_module_screen.dart';
-import '../../features/speech/screens/show_and_tell_screen.dart';
-import '../../features/speech/screens/ling_six_screen.dart';
-import '../../features/referral/screens/referral_preview_screen.dart';
-import '../../features/invites/screens/pending_invites_screen.dart';
-import '../../features/settings/screens/notification_prefs_screen.dart';
-/// Centralized named-route navigation for the app.
-class AppRouter {
-  AppRouter._();
+import 'package:heartech/features/auth/screens/splash_screen.dart';
+import 'package:heartech/features/auth/screens/role_selection_screen.dart';
+import 'package:heartech/features/auth/screens/hcw_login_screen.dart';
+import 'package:heartech/features/auth/screens/parent_login_screen.dart';
+import 'package:heartech/features/auth/screens/teacher_login_screen.dart';
+import 'package:heartech/features/auth/screens/hcw_registration_screen.dart';
+import 'package:heartech/features/auth/screens/parent_registration_screen.dart';
+import 'package:heartech/features/auth/screens/teacher_registration_screen.dart';
+import 'package:heartech/features/auth/screens/claim_profile_screen.dart';
+import 'package:heartech/features/dashboard/screens/hcw_dashboard_screen.dart';
+import 'package:heartech/features/dashboard/screens/parent_dashboard_screen.dart';
+import 'package:heartech/features/dashboard/screens/teacher_dashboard_screen.dart';
+import 'package:heartech/features/screening/screens/hcw_new_screening_screen.dart';
+import 'package:heartech/features/screening/screens/hcw_patients_screen.dart';
+import 'package:heartech/features/screening/screens/child_profile_screen.dart';
+import 'package:heartech/features/screening/screens/teacher_observation_screen.dart';
+import 'package:heartech/features/screening/screens/invite_teacher_screen.dart';
+import 'package:heartech/features/screening/screens/pending_invites_screen.dart';
+import 'package:heartech/features/screening/screens/parent_home_screening_screen.dart';
+import 'package:heartech/features/screening/screens/my_class_screen.dart';
+import 'package:heartech/features/settings/screens/hcw_profile_screen.dart';
+import 'package:heartech/features/settings/screens/parent_profile_screen.dart';
+import 'package:heartech/features/settings/screens/teacher_profile_screen.dart';
+import 'package:heartech/features/settings/screens/notification_prefs_screen.dart';
+import 'package:heartech/features/notifications/screens/notifications_screen.dart';
+import 'package:heartech/features/speech/screens/speech_games_screen.dart';
+import 'package:heartech/features/speech/screens/show_and_tell_screen.dart';
+import 'package:heartech/features/speech/screens/ling_six_screen.dart';
 
-  // ─── Route Names ────────────────────────────────────────────────
-  static const String splash          = '/';
-  static const String authCheck       = '/auth-check';
-  static const String roleSelect      = '/role-select';
-  static const String parentLogin     = '/parent/login';
-  static const String parentRegister  = '/parent/register';
-  static const String parentDashboard = '/parent/dashboard';
-  static const String hcwLogin        = '/hcw/login';
-  static const String hcwRegister     = '/hcw/register';
-  static const String hcwDashboard    = '/hcw/dashboard';
-  static const String teacherLogin    = '/teacher/login';
-  static const String teacherRegister = '/teacher/register';
-  static const String teacherDashboard= '/teacher/dashboard';
-  static const String notifications   = '/notifications';
-  static const String newScreening    = '/screening/new';
-  static const String screeningResult = '/screening/result';
-  static const String speechModules = '/speech';
-  static const String showAndTell = '/speech/show-and-tell';
-  static const String lingSix = '/speech/ling-six';
-  static const String referralPreview = '/referral/preview';
-  static const String childCreate     = '/child/create';
-  static const String childProfile    = '/child/profile';
-  static const String pendingInvites  = '/teacher/invites';
-  static const String inviteTeacher   = '/parent/invite-teacher';
-  static const String notificationPrefs = '/settings/notifications';
-
-  /// Generate a [Route] from route settings (used with onGenerateRoute).
-  static Route<dynamic> generateRoute(RouteSettings settings) {
-    switch (settings.name) {
-      case splash:
-        return _fade(const SplashScreen());
-      case authCheck:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _fade(FirstTimeLoginCheckScreen(uid: args['uid']));
-      case roleSelect:
-        return _fade(const RoleSelectionScreen());
-
-      // ── Auth ──
-      case parentLogin:
-        return _slide(const ParentLoginScreen());
-      case parentRegister:
-        return _slide(const ParentRegistrationScreen());
-      case hcwLogin:
-        return _slide(const HWLoginScreen());
-      case hcwRegister:
-        return _slide(const HCWRegistrationScreen());
-      case teacherLogin:
-        return _slide(const TeacherLoginScreen());
-      case teacherRegister:
-        return _slide(const TeacherRegistrationScreen());
-
-      // ── Dashboards ──
-      case parentDashboard:
-        return _fade(const ParentDashboardScreen());
-      case hcwDashboard:
-        return _fade(const HCWDashboardScreen());
-      case teacherDashboard:
-        return _fade(const TeacherDashboardScreen());
-
-      case notifications:
-        // Use cupertino/slide transition for notifications typical of iOS
-        return SlideForwardTransition(
-          page: const NotificationCenterScreen(),
-        );
-
-      // ── Screening ──
-      case newScreening:
-        final args = settings.arguments as Map<String, dynamic>? ?? {};
-        return _slide(ScreeningFlowScreen(
-          role: args['role'] ?? 'Healthcare Worker',
-          initialInfo: args['initialInfo'],
-        ));
-      case screeningResult:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(ScreeningResultScreen(
-          riskScore: args['riskScore'],
-          riskLevel: args['riskLevel'],
-          sessionData: args['sessionData'],
-          role: args['role'],
-        ));
-
-      // ── Child Profile ──
-      case childCreate:
-        final args = settings.arguments as Map<String, dynamic>?;
-        return _slide(ChildProfileCreationScreen(
-          sessionData: args ?? {},
-        ));
-      case childProfile:
-        final args = settings.arguments as Map<String, dynamic>;
-        return _slide(ChildProfileDashboard(
-          childId: args['childId'],
-          viewerRole: args['viewerRole'],
-        ));
-
-      // ── AI & Speech ──
-      case speechModules:
-        final args = settings.arguments as Map<String, dynamic>?;
-        return _slide(SpeechModuleScreen(childId: args?['childId'] ?? ''));
-      case showAndTell:
-        final args = settings.arguments as Map<String, dynamic>?;
-        return _slide(ShowAndTellScreen(childId: args?['childId'] ?? ''));
-      case lingSix:
-        final args = settings.arguments as Map<String, dynamic>?;
-        return _slide(LingSixScreen(childId: args?['childId'] ?? ''));
-      case referralPreview:
-        final args = settings.arguments as Map<String, dynamic>?;
-        return _slide(ReferralPreviewScreen(childId: args?['childId'] ?? ''));
-
-      // ── Invites & Settings ──
-      case pendingInvites:
-        return _slide(const PendingInvitesScreen());
-      case notificationPrefs:
-        return _slide(const NotificationPrefsScreen());
-
-      // ── Fallback ──
-      default:
-        return _fade(const RoleSelectionScreen());
-    }
-  }
-
-  // ─── Transition Helpers ─────────────────────────────────────────
-  static PageRouteBuilder _fade(Widget page) {
-    return PageRouteBuilder(
-      pageBuilder: (context, animation, secondaryAnimation) => page,
-      transitionDuration: const Duration(milliseconds: 400),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-          FadeTransition(opacity: animation, child: child),
-    );
-  }
-
-  static PageRouteBuilder _slide(Widget page) => PremiumTransition(page: page);
+class _Placeholder extends StatelessWidget {
+  final String title;
+  const _Placeholder(this.title);
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(title)),
+    body: Center(child: Text(title)),
+  );
 }
+
+class Routes {
+  Routes._();
+  static const splash = '/splash';
+  static const roleSelect = '/role-select';
+  static const parentLogin = '/login/parent';
+  static const hcwLogin = '/login/hcw';
+  static const teacherLogin = '/login/teacher';
+  static const parentRegister = '/register/parent';
+  static const hcwRegister = '/register/hcw';
+  static const teacherRegister = '/register/teacher';
+  static const hcwDashboard = '/hcw/dashboard';
+  static const hcwPatients = '/hcw/patients';
+  static const hcwNotifications = '/hcw/notifications';
+  static const hcwProfile = '/hcw/profile';
+  static const hcwChildProfile = '/hcw/child/:childId';
+  static const hcwNewScreening = '/hcw/screening/new';
+  static const hcwReferralPreview = '/hcw/referral-preview/:childId/:referralId';
+  static const parentDashboard = '/parent/dashboard';
+  static const parentChildren = '/parent/children';
+  static const parentSpeechGames = '/parent/speech-games';
+  static const parentNotifications = '/parent/notifications';
+  static const parentProfile = '/parent/profile';
+  static const parentChildProfile = '/parent/child/:childId';
+  static const parentClaimProfile = '/parent/claim-profile';
+  static const parentScreening = '/parent/screening';
+  static const parentInviteTeacher = '/parent/invite-teacher/:childId';
+  static const teacherDashboard = '/teacher/dashboard';
+  static const teacherMyClass = '/teacher/my-class';
+  static const teacherNotifications = '/teacher/notifications';
+  static const teacherProfile = '/teacher/profile';
+  static const teacherInvites = '/teacher/invites';
+  static const teacherChildProfile = '/teacher/child/:childId';
+  static const teacherObservation = '/teacher/observation';
+  static const showAndTell = '/speech/show-and-tell/:childId';
+  static const lingSix = '/speech/ling-six/:childId';
+  static const notificationPrefs = '/settings/notification-prefs';
+}
+
+final routerProvider = Provider<GoRouter>((ref) {
+  return GoRouter(
+    initialLocation: Routes.splash,
+    debugLogDiagnostics: true,
+    redirect: (context, state) {
+      final authPaths = [
+        Routes.splash, Routes.roleSelect,
+        Routes.parentLogin, Routes.hcwLogin, Routes.teacherLogin,
+        Routes.parentRegister, Routes.hcwRegister, Routes.teacherRegister,
+      ];
+      if (authPaths.contains(state.matchedLocation)) return null;
+      if (ref.read(currentFirebaseUserProvider) == null) return Routes.splash;
+      return null;
+    },
+    routes: [
+      GoRoute(path: Routes.splash, builder: (c, s) => const SplashScreen()),
+      GoRoute(path: Routes.roleSelect, builder: (c, s) => const RoleSelectionScreen()),
+      GoRoute(path: Routes.hcwLogin, builder: (c, s) => const HcwLoginScreen()),
+      GoRoute(path: Routes.parentLogin, builder: (c, s) => const ParentLoginScreen()),
+      GoRoute(path: Routes.teacherLogin, builder: (c, s) => const TeacherLoginScreen()),
+      GoRoute(path: Routes.hcwRegister, builder: (c, s) => const HcwRegistrationScreen()),
+      GoRoute(path: Routes.parentRegister, builder: (c, s) => const ParentRegistrationScreen()),
+      GoRoute(path: Routes.teacherRegister, builder: (c, s) => const TeacherRegistrationScreen()),
+      GoRoute(path: Routes.hcwDashboard, builder: (c, s) => const HcwDashboardScreen()),
+      GoRoute(path: Routes.hcwPatients, builder: (c, s) => const HcwPatientsScreen()),
+      GoRoute(path: Routes.hcwNotifications, builder: (c, s) => const NotificationsScreen(role: 'hcw')),
+      GoRoute(path: Routes.hcwProfile, builder: (c, s) => const HcwProfileScreen()),
+      GoRoute(path: Routes.hcwChildProfile, builder: (c, s) => ChildProfileScreen(
+          childId: s.pathParameters['childId']!, viewerRole: 'hcw')),
+      GoRoute(path: Routes.hcwNewScreening, builder: (c, s) => const HcwNewScreeningScreen()),
+      GoRoute(path: Routes.hcwReferralPreview, builder: (c, s) => const _Placeholder('Referral Preview')),
+      GoRoute(path: Routes.parentDashboard, builder: (c, s) => const ParentDashboardScreen()),
+      GoRoute(path: Routes.parentChildren, builder: (c, s) => const _Placeholder('My Children')),
+      GoRoute(path: Routes.parentSpeechGames, builder: (c, s) => const SpeechGamesScreen()),
+      GoRoute(path: Routes.parentNotifications, builder: (c, s) => const NotificationsScreen(role: 'parent')),
+      GoRoute(path: Routes.parentProfile, builder: (c, s) => const ParentProfileScreen()),
+      GoRoute(path: Routes.parentChildProfile, builder: (c, s) => ChildProfileScreen(
+          childId: s.pathParameters['childId']!, viewerRole: 'parent')),
+      GoRoute(path: Routes.parentClaimProfile, builder: (c, s) => const ClaimProfileScreen()),
+      GoRoute(path: Routes.parentScreening, builder: (c, s) => const ParentHomeScreeningScreen()),
+      GoRoute(path: Routes.parentInviteTeacher, builder: (c, s) => InviteTeacherScreen(
+          childId: s.pathParameters['childId']!)),
+      GoRoute(path: Routes.teacherDashboard, builder: (c, s) => const TeacherDashboardScreen()),
+      GoRoute(path: Routes.teacherMyClass, builder: (c, s) => const MyClassScreen()),
+      GoRoute(path: Routes.teacherNotifications, builder: (c, s) => const NotificationsScreen(role: 'teacher')),
+      GoRoute(path: Routes.teacherProfile, builder: (c, s) => const TeacherProfileScreen()),
+      GoRoute(path: Routes.teacherInvites, builder: (c, s) => const PendingInvitesScreen()),
+      GoRoute(path: Routes.teacherChildProfile, builder: (c, s) => ChildProfileScreen(
+          childId: s.pathParameters['childId']!, viewerRole: 'teacher')),
+      GoRoute(path: Routes.teacherObservation, builder: (c, s) => const TeacherObservationScreen()),
+      GoRoute(path: Routes.showAndTell, builder: (c, s) => ShowAndTellScreen(
+          childId: s.pathParameters['childId']!)),
+      GoRoute(path: Routes.lingSix, builder: (c, s) => LingSixScreen(
+          childId: s.pathParameters['childId']!)),
+      GoRoute(path: Routes.notificationPrefs, builder: (c, s) => const NotificationPrefsScreen()),
+    ],
+  );
+});

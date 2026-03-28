@@ -1,53 +1,82 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
-import 'risk_badge.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/risk_badge.dart';
 
+/// Reusable child summary card for patient lists and dashboards.
 class ChildCard extends StatelessWidget {
-  final String childId;
   final String name;
-  final int ageMonths;
+  final String ageString;
   final String riskLevel;
-  final VoidCallback onTap;
+  final int? riskScore;
+  final String? photoUrl;
+  final String? lastScreeningDate;
+  final VoidCallback? onTap;
+  final bool showScore;
 
   const ChildCard({
     super.key,
-    required this.childId,
     required this.name,
-    required this.ageMonths,
+    required this.ageString,
     required this.riskLevel,
-    required this.onTap,
+    this.riskScore,
+    this.photoUrl,
+    this.lastScreeningDate,
+    this.onTap,
+    this.showScore = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: AppTheme.cardDecoration,
+        padding: const EdgeInsets.all(HearTechDecorations.cardPadding),
+        decoration: HearTechDecorations.cardDecoration,
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: AppTheme.primaryPale,
-              child: Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: AppTheme.heading2.copyWith(color: AppTheme.primaryTeal),
-              ),
+            AvatarCircle(
+              name: name,
+              photoUrl: photoUrl,
+              radius: 24,
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: AppTheme.heading2),
-                  const SizedBox(height: 4),
-                  Text("$ageMonths months old", style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary)),
+                  Text(
+                    name,
+                    style: HearTechTextStyles.subtitle(
+                      color: HearTechColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    ageString,
+                    style: HearTechTextStyles.caption(),
+                  ),
+                  if (lastScreeningDate != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Last: $lastScreeningDate',
+                      style: HearTechTextStyles.caption(),
+                    ),
+                  ],
                 ],
               ),
             ),
-            RiskBadge(riskLevel: riskLevel),
+            RiskBadge(
+              riskLevel: riskLevel,
+              showScore: showScore,
+              score: riskScore,
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              color: HearTechColors.textSecondary,
+              size: 20,
+            ),
           ],
         ),
       ),

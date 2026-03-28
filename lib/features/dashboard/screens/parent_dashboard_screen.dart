@@ -1,246 +1,284 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
-import '../../../core/di/providers.dart';
-import '../../../shared/widgets/child_card.dart';
-import '../../notifications/widgets/notification_bell.dart';
-import '../../handover/widgets/link_child_card.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/loading_indicator.dart';
+import 'package:heartech/shared/widgets/bell_icon_with_badge.dart';
+import 'package:heartech/shared/widgets/risk_badge.dart';
+import 'package:heartech/shared/widgets/bottom_nav_bar.dart';
+import 'package:intl/intl.dart';
 
-class ParentDashboardScreen extends ConsumerWidget {
+/// Parent Dashboard — greeting, claim CTA, horizontal child cards,
+/// quick actions, hearing tips.
+/// Bottom nav: Home | My Children | Speech Games | Notifications | Profile
+class ParentDashboardScreen extends ConsumerStatefulWidget {
   const ParentDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  ConsumerState<ParentDashboardScreen> createState() => _ParentDashboardScreenState();
+}
+
+class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
+  final int _navIndex = 0;
+
+  void _onNavTap(int index) {
+    switch (index) {
+      case 0: break;
+      case 1: context.go(Routes.parentChildren); break;
+      case 2: context.go(Routes.parentSpeechGames); break;
+      case 3: context.go(Routes.parentNotifications); break;
+      case 4: context.go(Routes.parentProfile); break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final userAsync = ref.watch(currentUserProfileProvider);
-    final childrenAsync = ref.watch(
-      childrenStreamProvider((uid: uid, role: 'parent')),
-    );
-    final unread = ref.watch(unreadNotificationCountProvider(uid));
+    final childrenAsync = ref.watch(parentChildrenProvider);
 
-    final userName = userAsync.when(
-      data: (u) => u?.name ?? 'Parent',
-      loading: () => '...',
-      error: (_, __) => 'Parent',
-    );
+    return userAsync.when(
+      loading: () => const Scaffold(body: LoadingIndicator(message: 'Loading dashboard...')),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (user) {
+        if (user == null) return const Scaffold(body: LoadingIndicator());
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Header ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return Scaffold(
+          backgroundColor: HearTechColors.background,
+          bottomNavigationBar: HearTechBottomNavBar(
+            currentIndex: _navIndex,
+            onTap: _onNavTap,
+            role: 'parent',
+          ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
+                  // ── Header ──────────────────────────────────
+                  Row(
+                    children: [
+                      AvatarCircle(name: user.name, photoUrl: user.profilePhotoUrl, radius: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Hello, ${user.firstName}!', style: HearTechTextStyles.sectionHeader()),
+                            Text(DateFormat('EEEE, d MMMM').format(DateTime.now()), style: HearTechTextStyles.caption()),
+                          ],
+                        ),
+                      ),
+                      BellIconWithBadge(uid: user.uid, onTap: () => context.go(Routes.parentNotifications)),
+                    ],
+                  ).animate().fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
+
+                  // ── Claim Profile CTA ──────────────────────
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [HearTechColors.deepTeal, HearTechColors.mediumTeal],
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      ),
+                      borderRadius: HearTechDecorations.cardBorderRadius,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Hello,', style: AppTheme.subtitle),
+                        const Icon(Icons.qr_code, color: HearTechColors.white, size: 32),
+                        const SizedBox(height: 12),
+                        Text('Have a Handover Code?',
+                            style: HearTechTextStyles.subtitle(color: HearTechColors.white)),
                         const SizedBox(height: 4),
-                        Text(userName, style: AppTheme.heading1),
+                        Text("Enter the code from your healthcare worker to link your child's profile.",
+                            style: HearTechTextStyles.caption(color: HearTechColors.white.withValues(alpha: 0.85))),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 160,
+                          child: HearTechButton(
+                            label: 'Enter Code',
+                            onPressed: () => context.go(Routes.parentClaimProfile),
+                            backgroundColor: HearTechColors.white,
+                            textColor: HearTechColors.deepTeal,
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                  Row(
-                    children: [
-                      NotificationBell(unreadCount: unread),
-                      const SizedBox(width: 12),
-                      GestureDetector(
-                        onTap: () => _showSignOutSheet(context),
-                        child: CircleAvatar(
-                          radius: 22,
-                          backgroundColor: AppTheme.primaryPale,
-                          child: Text(
-                            userName.isNotEmpty
-                                ? userName[0].toUpperCase()
-                                : 'P',
-                            style: AppTheme.heading2.copyWith(
-                              color: AppTheme.primaryTeal,
+                  ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
+
+                  // ── My Children (horizontal scroll) ────────
+                  childrenAsync.when(
+                    loading: () => const LoadingIndicator(),
+                    error: (e, _) => Text('Error: $e'),
+                    data: (children) {
+                      if (children.isEmpty) {
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(32),
+                          decoration: HearTechDecorations.cardDecoration,
+                          child: Column(
+                            children: [
+                              Icon(Icons.family_restroom, size: 56,
+                                  color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
+                              const SizedBox(height: 16),
+                              Text('No profiles linked yet', style: HearTechTextStyles.subtitle()),
+                              const SizedBox(height: 6),
+                              Text("Enter the code from your healthcare worker\nto link your child's profile.",
+                                  style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
+                              const SizedBox(height: 4),
+                              Text("Your child's profile will appear here after your HCW creates it.",
+                                  style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+                                  textAlign: TextAlign.center),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('My Children', style: HearTechTextStyles.sectionHeader()),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 150,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: children.length,
+                              separatorBuilder: (_, i) => const SizedBox(width: 14),
+                              itemBuilder: (context, index) {
+                                final child = children[index];
+                                return GestureDetector(
+                                  onTap: () => context.go(
+                                    Routes.parentChildProfile.replaceFirst(':childId', child.childId),
+                                  ),
+                                  child: Container(
+                                    width: 160,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: HearTechColors.white,
+                                      borderRadius: HearTechDecorations.cardBorderRadius,
+                                      boxShadow: HearTechDecorations.cardShadow,
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        AvatarCircle(name: child.name, photoUrl: child.profilePhotoUrl, radius: 28),
+                                        const SizedBox(height: 8),
+                                        Text(child.name, style: HearTechTextStyles.subtitle(),
+                                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 4),
+                                        Text(child.ageString, style: HearTechTextStyles.caption()),
+                                        const Spacer(),
+                                        RiskBadge(riskLevel: child.riskLevel),
+                                      ],
+                                    ),
+                                  ),
+                                ).animate(delay: (200 + index * 80).ms).fadeIn(duration: 300.ms)
+                                    .slideX(begin: 0.1, end: 0);
+                              },
                             ),
                           ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── Quick Actions ──────────────────────────
+                  Text('Quick Actions', style: HearTechTextStyles.sectionHeader()),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ActionCard(
+                          icon: Icons.assignment,
+                          label: 'Run Home\nScreening',
+                          color: HearTechColors.deepTeal,
+                          onTap: () => context.go(Routes.parentScreening),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ActionCard(
+                          icon: Icons.mic,
+                          label: 'Speech\nGames',
+                          color: HearTechColors.mediumTeal,
+                          onTap: () => context.go(Routes.parentSpeechGames),
                         ),
                       ),
                     ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
+                  ).animate(delay: 300.ms).fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
 
-              // ── Handover Code Entry ──
-              LinkChildCard(
-                onSubmitCode: (code) async {
-                  // TODO: Call FastAPI /api/claim-profile
-                  await Future.delayed(const Duration(seconds: 2));
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Linking code: $code...'),
-                      backgroundColor: AppTheme.safeGreen,
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-
-              // ── Children List ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Your Children', style: AppTheme.heading2),
-                  TextButton(
-                    onPressed: () {},
-                    child: Text(
-                      'View All',
-                      style: TextStyle(color: AppTheme.primaryTeal),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              childrenAsync.when(
-                data: (children) {
-                  if (children.isEmpty) {
-                    return Container(
-                      padding: const EdgeInsets.all(32),
-                      decoration: AppTheme.cardDecoration,
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.child_care,
-                            size: 48,
-                            color: AppTheme.textSecondary.withValues(
-                              alpha: 0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No profiles yet. Enter the code from your healthcare worker to link your child\'s profile.',
-                            style: AppTheme.bodyText.copyWith(
-                              color: AppTheme.textSecondary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  return Column(
-                    children: children
-                        .map(
-                          (child) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: ChildCard(
-                              childId: child.childId,
-                              name: child.name,
-                              ageMonths:
-                                  DateTime.now().difference(child.dob).inDays ~/
-                                  30,
-                              riskLevel: child.riskLevel.isNotEmpty
-                                  ? child.riskLevel[0].toUpperCase() +
-                                        child.riskLevel.substring(1)
-                                  : 'Low',
-                              onTap: () => Navigator.pushNamed(
-                                context,
-                                AppRouter.childProfile,
-                                arguments: {
-                                  'childId': child.childId,
-                                  'viewerRole': 'parent',
-                                },
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (_, __) => const Text('Error loading children'),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Quick Actions ──
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: AppTheme.primaryButton.copyWith(
-                        padding: const WidgetStatePropertyAll(
-                          EdgeInsets.symmetric(vertical: 20),
+                  // ── Hearing Development Tips ───────────────
+                  Text('Hearing Development Tips', style: HearTechTextStyles.sectionHeader()),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 120,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _TipCard(
+                          title: 'Talk to your child',
+                          body: 'Narrate daily activities. This builds language and listening skills.',
                         ),
-                      ),
-                      onPressed: () => Navigator.pushNamed(
-                        context,
-                        AppRouter.newScreening,
-                        arguments: {'role': 'parent'},
-                      ),
-                      icon: const Icon(Icons.hearing, size: 22),
-                      label: const Text('Home Screening'),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: AppTheme.secondaryButton.copyWith(
-                        padding: const WidgetStatePropertyAll(
-                          EdgeInsets.symmetric(vertical: 20),
+                        const SizedBox(width: 12),
+                        _TipCard(
+                          title: 'Read aloud daily',
+                          body: 'Read stories to your child every day, even before they can speak.',
                         ),
-                      ),
-                      onPressed: () =>
-                          Navigator.pushNamed(context, AppRouter.speechModules),
-                      icon: const Icon(
-                        Icons.record_voice_over_outlined,
-                        size: 22,
-                      ),
-                      label: const Text('Speech Games'),
+                        const SizedBox(width: 12),
+                        _TipCard(
+                          title: 'Reduce background noise',
+                          body: 'Turn off the TV during conversations to help your child focus on speech.',
+                        ),
+                      ],
                     ),
-                  ),
+                  ).animate(delay: 400.ms).fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
                 ],
               ),
-
-              const SizedBox(height: 32),
-
-              // ── Tips ──
-              Text('Tips & Resources', style: AppTheme.heading2),
-              const SizedBox(height: 12),
-              _TipCard(
-                title: 'Importance of Early Screening',
-                description:
-                    'Detecting hearing loss early can significantly improve speech and language development outcomes.',
-                icon: Icons.lightbulb_outline,
-              ),
-              const SizedBox(height: 12),
-              _TipCard(
-                title: 'The Ling Six Sound Test',
-                description:
-                    'Learn how to use these six sounds to check your child\'s hearing daily at home.',
-                icon: Icons.record_voice_over_outlined,
-              ),
-
-              // ── Disclaimer ──
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryPale.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'HearTech is a screening tool, not a medical diagnosis. Always consult a qualified healthcare professional.',
-                  style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
+            ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _ActionCard({required this.icon, required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+        decoration: BoxDecoration(
+          color: HearTechColors.white,
+          borderRadius: HearTechDecorations.cardBorderRadius,
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+          boxShadow: HearTechDecorations.subtleShadow,
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 28, color: color),
+            const SizedBox(width: 12),
+            Expanded(child: Text(label, style: HearTechTextStyles.subtitle(color: color))),
+          ],
         ),
       ),
     );
@@ -249,98 +287,29 @@ class ParentDashboardScreen extends ConsumerWidget {
 
 class _TipCard extends StatelessWidget {
   final String title;
-  final String description;
-  final IconData icon;
-
-  const _TipCard({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
+  final String body;
+  const _TipCard({required this.title, required this.body});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: AppTheme.cardDecoration,
-      child: Row(
+      width: 220,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: HearTechColors.paleTeal,
+        borderRadius: HearTechDecorations.cardBorderRadius,
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.accentYellow.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Colors.orange.shade700),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTheme.bodyText.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: AppTheme.bodyText.copyWith(
-                    fontSize: 13,
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          Row(children: [
+            const Icon(Icons.lightbulb_outline, size: 18, color: HearTechColors.deepTeal),
+            const SizedBox(width: 6),
+            Expanded(child: Text(title, style: HearTechTextStyles.subtitle(color: HearTechColors.deepTeal))),
+          ]),
+          const SizedBox(height: 8),
+          Text(body, style: HearTechTextStyles.caption(), maxLines: 3, overflow: TextOverflow.ellipsis),
         ],
-      ),
-    );
-  }
-
-  void _showSignOutSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Sign Out?', style: AppTheme.heading2),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.accentCoral,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pushNamedAndRemoveUntil(
-                    AppRouter.roleSelect,
-                    (route) => false,
-                  );
-                }
-              },
-              child: const Text('Sign Out'),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-          ],
-        ),
       ),
     );
   }

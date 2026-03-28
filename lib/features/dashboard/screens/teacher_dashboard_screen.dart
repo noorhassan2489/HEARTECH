@@ -1,258 +1,201 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
-import '../../../core/di/providers.dart';
-import '../../../shared/widgets/child_card.dart';
-import '../../notifications/widgets/notification_bell.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/child_card.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/loading_indicator.dart';
+import 'package:heartech/shared/widgets/bell_icon_with_badge.dart';
 
-class TeacherDashboardScreen extends ConsumerWidget {
+import 'package:heartech/shared/widgets/bottom_nav_bar.dart';
+import 'package:intl/intl.dart';
+
+/// Teacher Dashboard — greeting, pending invites banner, linked students,
+/// observation CTA.
+/// Bottom nav: Home | My Class | Notifications | Profile
+class TeacherDashboardScreen extends ConsumerStatefulWidget {
   const TeacherDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  ConsumerState<TeacherDashboardScreen> createState() => _TeacherDashboardScreenState();
+}
+
+class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen> {
+  final int _navIndex = 0;
+
+  void _onNavTap(int index) {
+    switch (index) {
+      case 0: break;
+      case 1: context.go(Routes.teacherMyClass); break;
+      case 2: context.go(Routes.teacherNotifications); break;
+      case 3: context.go(Routes.teacherProfile); break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final userAsync = ref.watch(currentUserProfileProvider);
-    final childrenAsync = ref.watch(childrenStreamProvider((uid: uid, role: 'teacher')));
-    final unread = ref.watch(unreadNotificationCountProvider(uid));
+    final childrenAsync = ref.watch(teacherChildrenProvider);
 
-    final userName = userAsync.when(
-      data: (u) => u?.name ?? 'Teacher',
-      loading: () => '...',
-      error: (_, __) => 'Teacher',
-    );
+    return userAsync.when(
+      loading: () => const Scaffold(body: LoadingIndicator(message: 'Loading dashboard...')),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (user) {
+        if (user == null) return const Scaffold(body: LoadingIndicator());
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Header ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return Scaffold(
+          backgroundColor: HearTechColors.background,
+          bottomNavigationBar: HearTechBottomNavBar(
+            currentIndex: _navIndex,
+            onTap: _onNavTap,
+            role: 'teacher',
+          ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Welcome,', style: AppTheme.subtitle),
-                        const SizedBox(height: 4),
-                        Text(userName, style: AppTheme.heading1),
-                      ],
-                    ),
-                  ),
-                  Row(children: [
-                    NotificationBell(unreadCount: unread),
-                    const SizedBox(width: 12),
-                    GestureDetector(
-                      onTap: () => _showSignOutSheet(context),
-                      child: CircleAvatar(
-                        radius: 22,
-                        backgroundColor: const Color(0xFF8E44AD).withValues(alpha: 0.15),
-                        child: Text(
-                          userName.isNotEmpty ? userName[0].toUpperCase() : 'T',
-                          style: AppTheme.heading2.copyWith(color: const Color(0xFF8E44AD)),
+                  // ── Header ──────────────────────────────────
+                  Row(
+                    children: [
+                      AvatarCircle(name: user.name, photoUrl: user.profilePhotoUrl, radius: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Welcome, ${user.firstName}!', style: HearTechTextStyles.sectionHeader()),
+                            Text(DateFormat('EEEE, d MMMM').format(DateTime.now()),
+                                style: HearTechTextStyles.caption()),
+                          ],
                         ),
                       ),
-                    ),
-                  ]),
-                ],
-              ),
-              const SizedBox(height: 24),
+                      BellIconWithBadge(uid: user.uid, onTap: () => context.go(Routes.teacherNotifications)),
+                    ],
+                  ).animate().fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
 
-              // ── Pending Invites CTA ──
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF8E44AD), Color(0xFFA569BD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
+                  // ── Pending Invites Banner ─────────────────
+                  GestureDetector(
+                    onTap: () => context.go(Routes.teacherInvites),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
+                        color: HearTechColors.purple,
+                        borderRadius: HearTechDecorations.cardBorderRadius,
                       ),
-                      child: const Icon(Icons.mail_outline, color: Colors.white, size: 28),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Text('Pending Invites', style: AppTheme.heading2.copyWith(color: Colors.white)),
-                          const SizedBox(height: 4),
-                          Text('You may have new invites from parents',
-                              style: AppTheme.caption.copyWith(color: Colors.white70)),
+                          const Icon(Icons.school, color: HearTechColors.white, size: 28),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Pending Invites',
+                                    style: HearTechTextStyles.subtitle(color: HearTechColors.white)),
+                                Text('Check for new student linking requests',
+                                    style: HearTechTextStyles.caption(color: HearTechColors.white.withValues(alpha: 0.8))),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: HearTechColors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text('View', style: HearTechTextStyles.caption(color: HearTechColors.white)
+                                .copyWith(fontWeight: FontWeight.w700)),
+                          ),
                         ],
                       ),
                     ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: const Color(0xFF8E44AD),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      ),
-                      onPressed: () => Navigator.pushNamed(context, AppRouter.pendingInvites),
-                      child: const Text('View'),
-                    ),
-                  ],
-                ),
-              ),
+                  ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
+                  const SizedBox(height: 24),
 
-              const SizedBox(height: 24),
-
-              // ── Classroom Observation CTA ──
-              Container(
-                decoration: AppTheme.premiumCard,
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: AppTheme.primaryPale, shape: BoxShape.circle),
-                      child: const Icon(Icons.record_voice_over, color: AppTheme.primaryTeal, size: 36),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Classroom Observation', style: AppTheme.heading2),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Conduct a quick screening for a student based on classroom behavior and response.',
-                      textAlign: TextAlign.center,
-                      style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary),
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: AppTheme.primaryButton,
-                        onPressed: () => Navigator.pushNamed(context, AppRouter.newScreening, arguments: {'role': 'teacher'}),
-                        child: const Text('Start Observation'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── My Students ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('My Students', style: AppTheme.heading2),
-                  TextButton(
-                    onPressed: () {},
-                    child: Text('View Class', style: TextStyle(color: AppTheme.primaryTeal)),
+                  // ── Submit Observation CTA ─────────────────
+                  HearTechButton(
+                    label: 'Submit Observation',
+                    onPressed: () => context.go(Routes.teacherObservation),
+                    isSecondary: true,
                   ),
+                  const SizedBox(height: 24),
+
+                  // ── My Students / My Class ─────────────────
+                  childrenAsync.when(
+                    loading: () => const LoadingIndicator(),
+                    error: (e, _) => Text('Error: $e'),
+                    data: (children) {
+                      if (children.isEmpty) {
+                        return Column(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(32),
+                              decoration: HearTechDecorations.cardDecoration,
+                              child: Column(
+                                children: [
+                                  Icon(Icons.school_outlined, size: 56,
+                                      color: HearTechColors.purple.withValues(alpha: 0.3)),
+                                  const SizedBox(height: 16),
+                                  Text('No children assigned yet.', style: HearTechTextStyles.subtitle()),
+                                  const SizedBox(height: 6),
+                                  Text('Accept an invite from a parent to get started.',
+                                      style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('My Class', style: HearTechTextStyles.sectionHeader()),
+                              Text('${children.length} children', style: HearTechTextStyles.caption()),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          ...children.asMap().entries.map((entry) {
+                            final child = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: ChildCard(
+                                name: child.name,
+                                ageString: child.ageString,
+                                riskLevel: child.riskLevel,
+                                // Teacher sees label only — no score number
+                                photoUrl: child.profilePhotoUrl,
+                                onTap: () => context.go(
+                                  Routes.teacherChildProfile.replaceFirst(':childId', child.childId),
+                                ),
+                              ).animate(delay: (300 + entry.key * 80).ms)
+                                  .fadeIn(duration: 250.ms)
+                                  .slideX(begin: -0.1, end: 0, duration: 250.ms),
+                            );
+                          }),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              childrenAsync.when(
-                data: (children) {
-                  if (children.isEmpty) {
-                    return Container(
-                      padding: const EdgeInsets.all(32),
-                      decoration: AppTheme.cardDecoration,
-                      child: Column(children: [
-                        Icon(Icons.groups, size: 48, color: AppTheme.textSecondary.withValues(alpha: 0.5)),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No children assigned. Accept an invite from a parent to get started.',
-                          style: AppTheme.bodyText.copyWith(color: AppTheme.textSecondary),
-                          textAlign: TextAlign.center,
-                        ),
-                      ]),
-                    );
-                  }
-                  return Column(
-                    children: children.map((child) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ChildCard(
-                        childId: child.childId,
-                        name: child.name,
-                        ageMonths: DateTime.now().difference(child.dob).inDays ~/ 30,
-                        riskLevel: child.riskLevel.isNotEmpty
-                            ? child.riskLevel[0].toUpperCase() + child.riskLevel.substring(1)
-                            : 'Low',
-                        onTap: () => Navigator.pushNamed(context, AppRouter.childProfile,
-                            arguments: {'childId': child.childId, 'viewerRole': 'teacher'}),
-                      ),
-                    )).toList(),
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (_, __) => const Text('Error loading students'),
-              ),
-
-              // ── Disclaimer ──
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryPale.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'HearTech is a screening tool, not a medical diagnosis. Always consult a qualified healthcare professional.',
-                  style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  void _showSignOutSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Sign Out?', style: AppTheme.heading2),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.accentCoral,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 52),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (ctx.mounted) {
-                Navigator.of(ctx).pushNamedAndRemoveUntil(
-                  AppRouter.roleSelect,
-                  (route) => false,
-                );
-              }
-            },
-            child: const Text('Sign Out'),
           ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-        ]),
-      ),
+        );
+      },
     );
   }
 }

@@ -1,358 +1,375 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../core/constants/firestore_paths.dart';
+import 'package:heartech/core/constants/firestore_paths.dart';
+import 'package:heartech/shared/models/user_model.dart';
+import 'package:heartech/shared/models/child_model.dart';
+import 'package:heartech/shared/models/screening_model.dart';
+import 'package:heartech/shared/models/referral_model.dart';
+import 'package:heartech/shared/models/notification_model.dart';
+import 'package:heartech/shared/models/invite_model.dart';
+import 'package:heartech/shared/models/speech_log_model.dart';
+import 'package:heartech/shared/models/teacher_observation_model.dart';
 
-/// Handles all Firestore read/write operations.
+/// Central Firestore service — all database reads and writes go through here.
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // ═══════════════════════════════════════════════════════════════
-  //  USERS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // USERS
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Create or update a user profile document.
-  Future<void> setUserProfile(String uid, Map<String, dynamic> data) async {
-    await _db.collection(FirestorePaths.users).doc(uid).set(
-      {...data, 'lastLoginAt': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
+  /// Create or update a user document.
+  Future<void> setUser(UserModel user) async {
+    await _db.collection(FirestorePaths.users).doc(user.uid).set(
+          user.toJson(),
+          SetOptions(merge: true),
+        );
+  }
+
+  /// Get user by UID.
+  Future<UserModel?> getUser(String uid) async {
+    final doc = await _db.collection(FirestorePaths.users).doc(uid).get();
+    if (!doc.exists || doc.data() == null) return null;
+    return UserModel.fromJson(doc.data()!);
+  }
+
+  /// Stream user document.
+  Stream<UserModel?> streamUser(String uid) {
+    return _db.collection(FirestorePaths.users).doc(uid).snapshots().map(
+      (doc) {
+        if (!doc.exists || doc.data() == null) return null;
+        return UserModel.fromJson(doc.data()!);
+      },
     );
   }
 
-  /// Get a user profile by UID.
-  Future<Map<String, dynamic>?> getUserProfile(String uid) async {
-    final doc = await _db.collection(FirestorePaths.users).doc(uid).get();
-    return doc.data();
-  }
-
-  /// Search users by email (for linking parents to children).
-  Future<List<Map<String, dynamic>>> searchUsersByEmail(String email) async {
-    final snap = await _db
+  /// Find user by email.
+  Future<UserModel?> getUserByEmail(String email) async {
+    final query = await _db
         .collection(FirestorePaths.users)
         .where('email', isEqualTo: email.trim().toLowerCase())
-        .limit(5)
+        .limit(1)
         .get();
-    return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
+    if (query.docs.isEmpty) return null;
+    return UserModel.fromJson(query.docs.first.data());
   }
 
-  /// Search users by name (partial match).
-  Future<List<Map<String, dynamic>>> searchUsersByName(String name) async {
-    final snap = await _db
-        .collection(FirestorePaths.users)
-        .where('role', isEqualTo: 'parent')
-        .orderBy('name')
-        .startAt([name])
-        .endAt(['$name\uf8ff'])
-        .limit(10)
-        .get();
-    return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
+  /// Update specific fields on user document.
+  Future<void> updateUser(String uid, Map<String, dynamic> data) async {
+    await _db.collection(FirestorePaths.users).doc(uid).update(data);
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  CHILDREN
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CHILDREN
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Create a child profile (HCW only).
-  Future<String> createChildProfile(Map<String, dynamic> data) async {
-    final doc = await _db.collection(FirestorePaths.children).add({
-      ...data,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
-    });
-    return doc.id;
+  /// Create or update a child profile.
+  Future<void> setChild(ChildModel child) async {
+    await _db.collection(FirestorePaths.children).doc(child.childId).set(
+          child.toJson(),
+          SetOptions(merge: true),
+        );
   }
 
-  /// Get a child profile by ID.
-  Future<Map<String, dynamic>?> getChildProfile(String childId) async {
+  /// Get child by ID.
+  Future<ChildModel?> getChild(String childId) async {
     final doc =
         await _db.collection(FirestorePaths.children).doc(childId).get();
-    if (!doc.exists) return null;
-    return {'childId': doc.id, ...doc.data()!};
+    if (!doc.exists || doc.data() == null) return null;
+    return ChildModel.fromJson(doc.data()!);
   }
 
-  /// Get all children linked to a parent.
-  Stream<List<Map<String, dynamic>>> childrenByParent(String parentId) {
+  /// Stream child document.
+  Stream<ChildModel?> streamChild(String childId) {
     return _db
         .collection(FirestorePaths.children)
-        .where('parentId', isEqualTo: parentId)
+        .doc(childId)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'childId': d.id, ...d.data()}).toList());
-  }
-
-  /// Get all children linked to an HCW.
-  Stream<List<Map<String, dynamic>>> childrenByHcw(String hcwId) {
-    return _db
-        .collection(FirestorePaths.children)
-        .where('hcwIds', arrayContains: hcwId)
-        .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'childId': d.id, ...d.data()}).toList());
-  }
-
-  /// Get all children linked to a teacher.
-  Stream<List<Map<String, dynamic>>> childrenByTeacher(String teacherId) {
-    return _db
-        .collection(FirestorePaths.children)
-        .where('teacherIds', arrayContains: teacherId)
-        .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'childId': d.id, ...d.data()}).toList());
-  }
-
-  /// Update a child profile field.
-  Future<void> updateChild(String childId, Map<String, dynamic> data) async {
-    await _db.collection(FirestorePaths.children).doc(childId).update({
-      ...data,
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
+        .map((doc) {
+      if (!doc.exists || doc.data() == null) return null;
+      return ChildModel.fromJson(doc.data()!);
     });
   }
 
-  /// Link a teacher or HCW to a child (array-union).
-  Future<void> linkUserToChild(
-      String childId, String userId, String field) async {
-    await _db.collection(FirestorePaths.children).doc(childId).update({
-      field: FieldValue.arrayUnion([userId]),
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
-    });
+  /// Get all children where user is HCW.
+  Future<List<ChildModel>> getChildrenByHcw(String hcwUid) async {
+    final query = await _db
+        .collection(FirestorePaths.children)
+        .where('hcwIds', arrayContains: hcwUid)
+        .get();
+    return query.docs.map((d) => ChildModel.fromJson(d.data())).toList();
   }
 
-  /// Unlink a teacher or HCW from a child.
-  Future<void> unlinkUserFromChild(
-      String childId, String userId, String field) async {
-    await _db.collection(FirestorePaths.children).doc(childId).update({
-      field: FieldValue.arrayRemove([userId]),
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
-    });
+  /// Stream children where user is HCW.
+  Stream<List<ChildModel>> streamChildrenByHcw(String hcwUid) {
+    return _db
+        .collection(FirestorePaths.children)
+        .where('hcwIds', arrayContains: hcwUid)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => ChildModel.fromJson(d.data())).toList());
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  SCREENINGS
-  // ═══════════════════════════════════════════════════════════════
+  /// Get all children for a parent.
+  Future<List<ChildModel>> getChildrenByParent(String parentUid) async {
+    final query = await _db
+        .collection(FirestorePaths.children)
+        .where('parentId', isEqualTo: parentUid)
+        .get();
+    return query.docs.map((d) => ChildModel.fromJson(d.data())).toList();
+  }
 
-  /// Save a follow-up screening for an existing child profile.
-  Future<String> addChildScreening(
+  /// Stream children for a parent.
+  Stream<List<ChildModel>> streamChildrenByParent(String parentUid) {
+    return _db
+        .collection(FirestorePaths.children)
+        .where('parentId', isEqualTo: parentUid)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => ChildModel.fromJson(d.data())).toList());
+  }
+
+  /// Get all children where user is teacher.
+  Stream<List<ChildModel>> streamChildrenByTeacher(String teacherUid) {
+    return _db
+        .collection(FirestorePaths.children)
+        .where('teacherIds', arrayContains: teacherUid)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => ChildModel.fromJson(d.data())).toList());
+  }
+
+  /// Update specific fields on child document.
+  Future<void> updateChild(
       String childId, Map<String, dynamic> data) async {
-    final doc = await _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.screenings)
-        .add({...data, 'date': FieldValue.serverTimestamp()});
-    return doc.id;
+    await _db.collection(FirestorePaths.children).doc(childId).update(data);
   }
 
-  /// Save an HCW standalone screening (no child profile).
-  Future<String> addHcwScreening(Map<String, dynamic> data) async {
-    final doc = await _db.collection(FirestorePaths.hcwScreenings).add({
-      ...data,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    return doc.id;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SCREENINGS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Add a screening to a child's subcollection.
+  Future<void> addScreening(
+      String childId, ScreeningModel screening) async {
+    await _db
+        .collection(FirestorePaths.screenings(childId))
+        .doc(screening.screeningId)
+        .set(screening.toJson());
   }
 
-  /// Get all screenings for a child.
-  Stream<List<Map<String, dynamic>>> childScreenings(String childId) {
+  /// Get screenings for a child ordered by date desc.
+  Future<List<ScreeningModel>> getScreenings(String childId) async {
+    final query = await _db
+        .collection(FirestorePaths.screenings(childId))
+        .orderBy('date', descending: true)
+        .get();
+    return query.docs
+        .map((d) => ScreeningModel.fromJson(d.data()))
+        .toList();
+  }
+
+  /// Stream screenings for a child.
+  Stream<List<ScreeningModel>> streamScreenings(String childId) {
     return _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.screenings)
+        .collection(FirestorePaths.screenings(childId))
         .orderBy('date', descending: true)
         .snapshots()
         .map((snap) => snap.docs
-            .map((d) => {'screeningId': d.id, ...d.data()})
+            .map((d) => ScreeningModel.fromJson(d.data()))
             .toList());
   }
 
-  /// Get HCW standalone screenings.
-  Stream<List<Map<String, dynamic>>> hcwScreenings(String hcwId) {
-    return _db
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HCW ANONYMOUS SCREENINGS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Save anonymous low-risk screening.
+  Future<void> saveHcwScreening(
+      String screeningId, Map<String, dynamic> data) async {
+    await _db
         .collection(FirestorePaths.hcwScreenings)
-        .where('hcwId', isEqualTo: hcwId)
-        .orderBy('createdAt', descending: true)
+        .doc(screeningId)
+        .set(data);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TEACHER OBSERVATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Add a teacher observation.
+  Future<void> addTeacherObservation(
+      String childId, TeacherObservationModel obs) async {
+    await _db
+        .collection(FirestorePaths.teacherObservations(childId))
+        .doc(obs.obsId)
+        .set(obs.toJson());
+  }
+
+  /// Stream teacher observations for a child.
+  Stream<List<TeacherObservationModel>> streamTeacherObservations(
+      String childId) {
+    return _db
+        .collection(FirestorePaths.teacherObservations(childId))
+        .orderBy('date', descending: true)
         .snapshots()
         .map((snap) => snap.docs
-            .map((d) => {'screeningId': d.id, ...d.data()})
+            .map((d) => TeacherObservationModel.fromJson(d.data()))
             .toList());
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  REFERRALS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REFERRALS
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<String> addReferral(
-      String childId, Map<String, dynamic> data) async {
-    final doc = await _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.referrals)
-        .add({...data, 'generatedAt': FieldValue.serverTimestamp()});
-    return doc.id;
+  /// Add a referral.
+  Future<void> addReferral(String childId, ReferralModel referral) async {
+    await _db
+        .collection(FirestorePaths.referrals(childId))
+        .doc(referral.referralId)
+        .set(referral.toJson());
   }
 
-  Stream<List<Map<String, dynamic>>> childReferrals(String childId) {
+  /// Stream referrals for a child.
+  Stream<List<ReferralModel>> streamReferrals(String childId) {
     return _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.referrals)
+        .collection(FirestorePaths.referrals(childId))
         .orderBy('generatedAt', descending: true)
         .snapshots()
         .map((snap) => snap.docs
-            .map((d) => {'referralId': d.id, ...d.data()})
+            .map((d) => ReferralModel.fromJson(d.data()))
             .toList());
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  SPEECH LOGS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SPEECH LOGS
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<String> addSpeechLog(
-      String childId, Map<String, dynamic> data) async {
-    final doc = await _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.speechLogs)
-        .add({...data, 'date': FieldValue.serverTimestamp()});
-    return doc.id;
+  /// Add a speech log.
+  Future<void> addSpeechLog(String childId, SpeechLogModel log) async {
+    await _db
+        .collection(FirestorePaths.speechLogs(childId))
+        .doc(log.logId)
+        .set(log.toJson());
   }
 
-  Stream<List<Map<String, dynamic>>> childSpeechLogs(String childId) {
+  /// Stream speech logs for a child.
+  Stream<List<SpeechLogModel>> streamSpeechLogs(String childId) {
     return _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.speechLogs)
+        .collection(FirestorePaths.speechLogs(childId))
         .orderBy('date', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'logId': d.id, ...d.data()}).toList());
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  //  NOTIFICATIONS
-  // ═══════════════════════════════════════════════════════════════
-
-  Future<void> addNotification(
-      String uid, Map<String, dynamic> data) async {
-    await _db
-        .collection(FirestorePaths.notifications)
-        .doc(uid)
-        .collection(FirestorePaths.notifItems)
-        .add({...data, 'createdAt': FieldValue.serverTimestamp(), 'read': false});
-  }
-
-  Stream<List<Map<String, dynamic>>> userNotifications(String uid) {
-    return _db
-        .collection(FirestorePaths.notifications)
-        .doc(uid)
-        .collection(FirestorePaths.notifItems)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .snapshots()
         .map((snap) => snap.docs
-            .map((d) => {'notifId': d.id, ...d.data()})
+            .map((d) => SpeechLogModel.fromJson(d.data()))
             .toList());
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Stream notifications for a user.
+  Stream<List<NotificationModel>> streamNotifications(String uid) {
+    return _db
+        .collection(FirestorePaths.notifications(uid))
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => NotificationModel.fromJson(d.data()))
+            .toList());
+  }
+
+  /// Count unread notifications.
+  Stream<int> streamUnreadCount(String uid) {
+    return _db
+        .collection(FirestorePaths.notifications(uid))
+        .where('read', isEqualTo: false)
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Mark notification as read.
   Future<void> markNotificationRead(String uid, String notifId) async {
     await _db
-        .collection(FirestorePaths.notifications)
-        .doc(uid)
-        .collection(FirestorePaths.notifItems)
+        .collection(FirestorePaths.notifications(uid))
         .doc(notifId)
         .update({'read': true});
   }
 
+  /// Mark all notifications as read.
   Future<void> markAllNotificationsRead(String uid) async {
-    final snap = await _db
-        .collection(FirestorePaths.notifications)
-        .doc(uid)
-        .collection(FirestorePaths.notifItems)
+    final batch = _db.batch();
+    final unread = await _db
+        .collection(FirestorePaths.notifications(uid))
         .where('read', isEqualTo: false)
         .get();
-    final batch = _db.batch();
-    for (final doc in snap.docs) {
+    for (final doc in unread.docs) {
       batch.update(doc.reference, {'read': true});
     }
     await batch.commit();
   }
 
+  /// Delete a notification.
   Future<void> deleteNotification(String uid, String notifId) async {
     await _db
-        .collection(FirestorePaths.notifications)
-        .doc(uid)
-        .collection(FirestorePaths.notifItems)
+        .collection(FirestorePaths.notifications(uid))
         .doc(notifId)
         .delete();
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  INVITES
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INVITES
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<String> createInvite(Map<String, dynamic> data) async {
-    final doc = await _db.collection(FirestorePaths.invites).add({
-      ...data,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    return doc.id;
+  /// Create an invite.
+  Future<void> createInvite(InviteModel invite) async {
+    await _db
+        .collection(FirestorePaths.invites)
+        .doc(invite.inviteId)
+        .set(invite.toJson());
   }
 
-  Stream<List<Map<String, dynamic>>> pendingInvitesForTeacher(String teacherUid) {
+  /// Get pending invites for a teacher.
+  Stream<List<InviteModel>> streamPendingInvitesForTeacher(
+      String teacherUid) {
     return _db
         .collection(FirestorePaths.invites)
         .where('teacherUid', isEqualTo: teacherUid)
         .where('status', isEqualTo: 'pending')
         .snapshots()
         .map((snap) => snap.docs
-            .map((d) => {'inviteId': d.id, ...d.data()})
+            .map((d) => InviteModel.fromJson(d.data()))
             .toList());
   }
 
-  Stream<List<Map<String, dynamic>>> invitesForParent(String parentUid) {
-    return _db
+  /// Get active invite for a child (from parent perspective).
+  Future<InviteModel?> getActiveInviteForChild(String childId) async {
+    final query = await _db
         .collection(FirestorePaths.invites)
-        .where('parentUid', isEqualTo: parentUid)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => {'inviteId': d.id, ...d.data()})
-            .toList());
+        .where('childId', isEqualTo: childId)
+        .where('status', isEqualTo: 'pending')
+        .limit(1)
+        .get();
+    if (query.docs.isEmpty) return null;
+    return InviteModel.fromJson(query.docs.first.data());
   }
 
-  Future<void> updateInvite(String inviteId, Map<String, dynamic> data) async {
-    await _db.collection(FirestorePaths.invites).doc(inviteId).update(data);
+  /// Update invite status.
+  Future<void> updateInviteStatus(
+      String inviteId, String status) async {
+    await _db
+        .collection(FirestorePaths.invites)
+        .doc(inviteId)
+        .update({'status': status});
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  //  TEACHER OBSERVATIONS
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BATCH OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<String> addTeacherObservation(
-      String childId, Map<String, dynamic> data) async {
-    final doc = await _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.teacherObservations)
-        .add({...data, 'date': FieldValue.serverTimestamp()});
-    return doc.id;
-  }
+  /// Get a new Firestore batch for atomic writes.
+  WriteBatch batch() => _db.batch();
 
-  Stream<List<Map<String, dynamic>>> childTeacherObservations(String childId) {
-    return _db
-        .collection(FirestorePaths.children)
-        .doc(childId)
-        .collection(FirestorePaths.teacherObservations)
-        .orderBy('date', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => {'obsId': d.id, ...d.data()})
-            .toList());
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  //  AUDIT LOG
-  // ═══════════════════════════════════════════════════════════════
-
-  Future<void> writeAuditLog(Map<String, dynamic> data) async {
-    await _db.collection(FirestorePaths.auditLog).add({
-      ...data,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-  }
+  /// Generate a new document ID.
+  String generateId(String collection) =>
+      _db.collection(collection).doc().id;
 }

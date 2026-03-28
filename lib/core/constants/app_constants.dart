@@ -1,133 +1,73 @@
-/// App-wide constants for HearTech.
+// ============================================================================
+// HEARTECH CONSTANTS — API URLs, service keys, app-wide constants
+// ============================================================================
+
 class AppConstants {
   AppConstants._();
 
-  // ─── Risk Score Thresholds ──────────────────────────────────────
-  static const int lowRiskMax = 33;
-  static const int mediumRiskMax = 66;
-  // 67-100 = High
+  // ── API ──────────────────────────────────────────────────────────────────
+  /// FastAPI base URL (Google Cloud Run)
+  /// Replace with your deployed Cloud Run URL
+  static const String apiBaseUrl = 'http://localhost:8000';
 
-  // ─── Age Brackets ──────────────────────────────────────────────
-  static const Map<int, AgeBracket> ageBrackets = {
-    1: AgeBracket(
-      id: 1,
-      label: 'Infants (0–6 Months)',
-      minMonths: 0,
-      maxMonths: 6,
-    ),
-    2: AgeBracket(
-      id: 2,
-      label: 'Older Infants (7–12 Months)',
-      minMonths: 7,
-      maxMonths: 12,
-    ),
-    3: AgeBracket(
-      id: 3,
-      label: 'Toddlers (1–2 Years)',
-      minMonths: 13,
-      maxMonths: 24,
-    ),
-    4: AgeBracket(
-      id: 4,
-      label: 'Preschoolers (3–5 Years)',
-      minMonths: 25,
-      maxMonths: 60,
-    ),
-    5: AgeBracket(
-      id: 5,
-      label: 'School-Age (6–12 Years)',
-      minMonths: 61,
-      maxMonths: 144,
-    ),
+  // ── Cloudinary ───────────────────────────────────────────────────────────
+  /// Replace with your Cloudinary cloud name from dashboard
+  static const String cloudinaryCloudName = 'YOUR_CLOUD_NAME';
+  static const String cloudinaryApiKey = 'YOUR_API_KEY';
+  static const String cloudinaryUploadPreset = 'heartech_unsigned';
+
+  // ── OneSignal ────────────────────────────────────────────────────────────
+  /// Replace with your OneSignal App ID
+  static const String oneSignalAppId = 'YOUR_ONESIGNAL_APP_ID';
+
+  // ── Handover Code ────────────────────────────────────────────────────────
+  static const int handoverCodeLength = 6;
+  static const Duration handoverCodeExpiry = Duration(hours: 24);
+  static const int handoverCodeMaxAttempts = 5;
+  /// Characters excluded from handover codes (avoid confusion: 0/O, 1/I)
+  static const String handoverCodeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  // ── Invite ───────────────────────────────────────────────────────────────
+  static const Duration inviteExpiry = Duration(hours: 72);
+
+  // ── Screening ────────────────────────────────────────────────────────────
+  static const int totalAgeBrackets = 5;
+
+  // Age bracket boundaries in months
+  static const Map<int, String> ageBracketLabels = {
+    1: '0-6 months',
+    2: '7-12 months',
+    3: '1-2 years',
+    4: '3-5 years',
+    5: '6-12 years',
   };
 
-  /// Return 1-5 bracket ID based on date of birth.
-  static int bracketFromDob(DateTime dob) {
-    final now = DateTime.now();
-    int months = (now.year - dob.year) * 12 + (now.month - dob.month);
-    if (now.day < dob.day) months--;
-    if (months < 0) months = 0;
+  // Risk thresholds
+  static const int lowRiskMax = 33;
+  static const int mediumRiskMax = 66;
+  // 67-100 = high risk
 
-    if (months <= 6) return 1;
-    if (months <= 12) return 2;
-    if (months <= 24) return 3;
-    if (months <= 60) return 4;
-    return 5;
+  static String riskLevelFromScore(int score) {
+    if (score <= lowRiskMax) return 'low';
+    if (score <= mediumRiskMax) return 'medium';
+    return 'high';
   }
 
-  // ─── Ling Six Sounds ───────────────────────────────────────────
-  static const List<LingSixSound> lingSixSounds = [
-    LingSixSound(
-      phoneme: '/m/',
-      label: 'mmm',
-      freqRange: '250–500 Hz',
-      freqCategory: 'Low',
-    ),
-    LingSixSound(
-      phoneme: '/ah/',
-      label: 'aah',
-      freqRange: '500–1000 Hz',
-      freqCategory: 'Low-Mid',
-    ),
-    LingSixSound(
-      phoneme: '/oo/',
-      label: 'ooo',
-      freqRange: '500–1000 Hz',
-      freqCategory: 'Mid',
-    ),
-    LingSixSound(
-      phoneme: '/ee/',
-      label: 'eee',
-      freqRange: '1000–3000 Hz',
-      freqCategory: 'Mid-High',
-    ),
-    LingSixSound(
-      phoneme: '/sh/',
-      label: 'shh',
-      freqRange: '2000–4000 Hz',
-      freqCategory: 'High',
-    ),
-    LingSixSound(
-      phoneme: '/s/',
-      label: 'sss',
-      freqRange: '4000–8000 Hz',
-      freqCategory: 'Very High',
-    ),
-  ];
+  // ── Offline ──────────────────────────────────────────────────────────────
+  static const int maxCachedScreenings = 50;
+  static const int maxCachedNotifications = 20;
 
-  // ─── User Roles ────────────────────────────────────────────────
-  static const String roleParent = 'parent';
-  static const String roleTeacher = 'teacher';
-  static const String roleHcw = 'hcw';
+  // ── Notification reminder intervals ──────────────────────────────────────
+  static const int hcwFollowUpHighRiskDays = 14;
+  static const int hcwFollowUpMediumRiskDays = 30;
+  static const int parentHomeScreeningReminderDays = 30;
+  static const int teacherObservationReminderDays = 14;
 
-  // ─── Speech Game Thresholds ────────────────────────────────────
-  static const int speechExcellent = 90;
-  static const int speechGood = 60;
-  static const int speechNeedsPractice = 30;
-}
+  // ── Disclaimer ───────────────────────────────────────────────────────────
+  static const String disclaimer =
+      'HearTech is a screening tool, not a diagnosis. '
+      'Always consult a qualified healthcare professional.';
 
-class AgeBracket {
-  final int id;
-  final String label;
-  final int minMonths;
-  final int maxMonths;
-  const AgeBracket({
-    required this.id,
-    required this.label,
-    required this.minMonths,
-    required this.maxMonths,
-  });
-}
-
-class LingSixSound {
-  final String phoneme;
-  final String label;
-  final String freqRange;
-  final String freqCategory;
-  const LingSixSound({
-    required this.phoneme,
-    required this.label,
-    required this.freqRange,
-    required this.freqCategory,
-  });
+  // ── Teacher access minimum age ───────────────────────────────────────────
+  static const int teacherMinAgeYears = 3;
 }

@@ -1,53 +1,65 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 
+/// Offline support service — Hive caching and connectivity monitoring.
 class OfflineService {
-  static const String _childrenBox = 'children_cache';
-  static const String _screeningsBox = 'screenings_cache';
-  static const String _syncQueueBox = 'sync_queue';
+  static const String childrenBox = 'children_box';
+  static const String screeningsBox = 'screenings_box';
+  static const String questionnairesBox = 'questionnaires_box';
+  static const String notificationsBox = 'notifications_box';
+  static const String pendingSyncBox = 'pending_sync_box';
 
-  static Future<void> init() async {
-    final dir = await getApplicationDocumentsDirectory();
-    Hive.init(dir.path);
-    
-    await Hive.openBox(_childrenBox);
-    await Hive.openBox(_screeningsBox);
-    await Hive.openBox(_syncQueueBox);
+  /// Initialize Hive and open all boxes.
+  static Future<void> initialize() async {
+    await Hive.initFlutter();
+    await Hive.openBox(childrenBox);
+    await Hive.openBox(screeningsBox);
+    await Hive.openBox(questionnairesBox);
+    await Hive.openBox(notificationsBox);
+    await Hive.openBox(pendingSyncBox);
   }
 
-  // --- Children Cache ---
-  static Future<void> cacheChildProfiles(List<Map<String, dynamic>> profiles) async {
-    final box = Hive.box(_childrenBox);
-    await box.clear(); // simple strategy: replace all
-    for (var profile in profiles) {
-      if (profile['id'] != null) {
-        await box.put(profile['id'], profile);
-      }
-    }
+  /// Check if device is online.
+  static Future<bool> isOnline() async {
+    final result = await Connectivity().checkConnectivity();
+    return !result.contains(ConnectivityResult.none);
   }
 
-  static List<Map<String, dynamic>> getCachedChildProfiles() {
-    final box = Hive.box(_childrenBox);
-    return box.values.cast<Map<String, dynamic>>().toList();
+  /// Stream connectivity changes.
+  static Stream<bool> connectivityStream() {
+    return Connectivity().onConnectivityChanged.map(
+          (result) => !result.contains(ConnectivityResult.none),
+        );
   }
 
-  // --- Offline Create/Update Queue ---
-  static Future<void> queueAction(String actionType, Map<String, dynamic> payload) async {
-    final box = Hive.box(_syncQueueBox);
-    await box.add({
-      'action': actionType,
-      'payload': payload,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
+  /// Cache data to a Hive box.
+  static Future<void> cacheData(
+      String boxName, String key, dynamic data) async {
+    final box = Hive.box(boxName);
+    await box.put(key, data);
   }
 
-  static List<Map<String, dynamic>> getSyncQueue() {
-    final box = Hive.box(_syncQueueBox);
-    return box.values.cast<Map<String, dynamic>>().toList();
+  /// Get cached data from a Hive box.
+  static dynamic getCachedData(String boxName, String key) {
+    final box = Hive.box(boxName);
+    return box.get(key);
   }
 
-  static Future<void> clearSyncQueue() async {
-    final box = Hive.box(_syncQueueBox);
+  /// Queue a pending write for sync.
+  static Future<void> queuePendingSync(Map<String, dynamic> data) async {
+    final box = Hive.box(pendingSyncBox);
+    await box.add(data);
+  }
+
+  /// Get all pending sync items.
+  static List<dynamic> getPendingSyncItems() {
+    final box = Hive.box(pendingSyncBox);
+    return box.values.toList();
+  }
+
+  /// Clear all pending sync items.
+  static Future<void> clearPendingSync() async {
+    final box = Hive.box(pendingSyncBox);
     await box.clear();
   }
 }

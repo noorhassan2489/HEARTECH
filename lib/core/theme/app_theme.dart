@@ -1,207 +1,376 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// HearTech Design System — All tokens consumed from here.
-class AppTheme {
-  AppTheme._();
+// ============================================================================
+// HEARTECH DESIGN SYSTEM — Single source of truth for all visual styling
+// ============================================================================
 
-  // ─── 1. COLOR PALETTE ───────────────────────────────────────────────
-  static const Color primaryTeal      = Color(0xFF007B7B); // Deep Teal — brand
-  static const Color primaryLight     = Color(0xFF00A3A3); // Medium Teal — hover
-  static const Color primaryPale      = Color(0xFFE0F5F5); // Pale Teal — card bg
-  static const Color accentCoral      = Color(0xFFFF6B6B); // Coral Red — risk
-  static const Color accentGreen      = Color(0xFF27AE60); // Green — success
-  static const Color accentYellow     = Color(0xFFF2994A); // Yellow/Orange — medium risk
-  static const Color background       = Color(0xFFF4F8F9); // Off-white blue-grey
-  static const Color surface          = Color(0xFFFFFFFF); // Cards/modals
-  static const Color textPrimary      = Color(0xFF1A2E35); // Deep Navy
+/// All app colors. No hex values anywhere else in the codebase.
+class HearTechColors {
+  HearTechColors._();
+
+  // Brand / Primary
+  static const Color deepTeal = Color(0xFF007B7B);
+  static const Color mediumTeal = Color(0xFF00A3A3);
+  static const Color paleTeal = Color(0xFFE0F5F5);
+
+  // Risk levels
+  static const Color coralRed = Color(0xFFFF6B6B);
+  static const Color warmOrange = Color(0xFFE67E22);
+  static const Color green = Color(0xFF27AE60);
+
+  // Role accent
+  static const Color purple = Color(0xFF8E44AD);
+
+  // Neutral
+  static const Color background = Color(0xFFF4F8F9);
+  static const Color white = Color(0xFFFFFFFF);
+  static const Color textPrimary = Color(0xFF1A2E35);
   static const Color textSecondary = Color(0xFF6B8E99);
-  static const Color dividerColor  = Color(0xFFD0E8EC);
-  static const Color roleBg        = Color(0xFF99E2E6); // Role selection bg
+  static const Color divider = Color(0xFFD0E8EC);
 
-  // Legacy aliases (backward compat with existing screens)
-  static const Color primaryColor = primaryTeal;
-  static const Color bgOffWhite   = background;
-  static const Color surfaceWhite = surface;
-  static const Color textDark     = textPrimary;
-  static const Color textGrey     = textSecondary;
-  static const Color alertCoral   = accentCoral;
-  static const Color safeGreen    = accentGreen;
-  static const Color lightMint    = Color(0xFF83C5BE);
+  // Derived
+  static const Color deepTealDark = Color(0xFF005F5F);
+  static const Color error = Color(0xFFE53935);
+  static const Color overlay = Color(0x33000000);
 
-  // ─── 2. TYPOGRAPHY (Nunito) ─────────────────────────────────────────
-  static TextStyle get display => GoogleFonts.nunito(
-    fontSize: 32, fontWeight: FontWeight.w800, color: textPrimary,
-  );
+  /// Returns the colour for a risk level string.
+  static Color riskColor(String riskLevel) {
+    switch (riskLevel.toLowerCase()) {
+      case 'high':
+        return coralRed;
+      case 'medium':
+        return warmOrange;
+      case 'low':
+        return green;
+      default:
+        return textSecondary;
+    }
+  }
+}
 
-  static TextStyle get heading1 => GoogleFonts.nunito(
-    fontSize: 24, fontWeight: FontWeight.w700, color: textPrimary,
-  );
+/// All text styles. Uses Nunito via Google Fonts.
+class HearTechTextStyles {
+  HearTechTextStyles._();
 
-  static TextStyle get heading2 => GoogleFonts.nunito(
-    fontSize: 18, fontWeight: FontWeight.w600, color: textPrimary,
-  );
-
-  static TextStyle get bodyText => GoogleFonts.nunito(
-    fontSize: 14, fontWeight: FontWeight.w400, color: textPrimary,
-  );
-
-  static TextStyle get caption => GoogleFonts.nunito(
-    fontSize: 12, fontWeight: FontWeight.w300, color: textSecondary,
-  );
-
-  static TextStyle get buttonText => GoogleFonts.nunito(
-    fontSize: 16, fontWeight: FontWeight.w700, color: surface,
-  );
-
-  static TextStyle get subtitle => GoogleFonts.nunito(
-    fontSize: 14, fontWeight: FontWeight.w400, color: textSecondary,
-  );
-
-  // ─── 3. CARD DECORATIONS ───────────────────────────────────────────
-  static BoxDecoration get primaryCard => BoxDecoration(
-    color: surface,
-    borderRadius: BorderRadius.circular(20),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.06),
-        blurRadius: 12,
-        offset: const Offset(0, 4),
-      ),
-    ],
-  );
-
-  static BoxDecoration get premiumCard => BoxDecoration(
-    color: Colors.white.withValues(alpha: 0.95),
-    borderRadius: BorderRadius.circular(24),
-    border: Border.all(color: Colors.white, width: 1.5),
-    boxShadow: [
-      BoxShadow(
-        color: primaryTeal.withValues(alpha: 0.08),
-        blurRadius: 24,
-        offset: const Offset(0, 10),
-      ),
-    ],
-  );
-
-  static BoxDecoration get cardDecoration => BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(16),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.05),
-        blurRadius: 10,
-        offset: const Offset(0, 4),
-      ),
-    ],
-  );
-
-  static const BoxDecoration premiumBackground = BoxDecoration(
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFF4F9F9), Color(0xFFE0F2F1)],
-    ),
-  );
-
-  // ─── 4. BUTTON STYLES ──────────────────────────────────────────────
-  static ButtonStyle get primaryButton => ElevatedButton.styleFrom(
-    backgroundColor: primaryTeal,
-    foregroundColor: Colors.white,
-    elevation: 0,
-    minimumSize: const Size(double.infinity, 56),
-    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    textStyle: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700),
-  );
-
-  static ButtonStyle get secondaryButton => OutlinedButton.styleFrom(
-    foregroundColor: primaryTeal,
-    side: const BorderSide(color: primaryTeal, width: 1.5),
-    minimumSize: const Size(double.infinity, 56),
-    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    textStyle: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700),
-  );
-
-  // ─── 5. INPUT DECORATION ───────────────────────────────────────────
-  static InputDecoration inputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: GoogleFonts.nunito(color: textSecondary, fontSize: 14),
-      prefixIcon: Icon(icon, color: primaryTeal, size: 22),
-      filled: true,
-      fillColor: primaryPale.withValues(alpha: 0.5),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: dividerColor, width: 1),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: primaryTeal, width: 2),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: accentCoral, width: 1.5),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: accentCoral, width: 2),
-      ),
+  static TextStyle _nunito({
+    required double fontSize,
+    required FontWeight fontWeight,
+    Color color = HearTechColors.textPrimary,
+    double? letterSpacing,
+    double? height,
+  }) {
+    return GoogleFonts.nunito(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      letterSpacing: letterSpacing,
+      height: height,
     );
   }
 
-  // ─── 6. FULL THEME DATA ────────────────────────────────────────────
-  static ThemeData get themeData => ThemeData(
-    useMaterial3: true,
-    scaffoldBackgroundColor: background,
-    primaryColor: primaryTeal,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: primaryTeal,
-      primary: primaryTeal,
-      secondary: primaryLight,
-      surface: surface,
-      error: accentCoral,
+  // Screen titles — Nunito Bold 24sp
+  static TextStyle screenTitle({Color? color}) => _nunito(
+        fontSize: 24,
+        fontWeight: FontWeight.w700,
+        color: color ?? HearTechColors.textPrimary,
+      );
+
+  // Section headers — Nunito SemiBold 18sp
+  static TextStyle sectionHeader({Color? color}) => _nunito(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: color ?? HearTechColors.textPrimary,
+      );
+
+  // Body text — Nunito Regular 14sp
+  static TextStyle body({Color? color}) => _nunito(
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        color: color ?? HearTechColors.textPrimary,
+      );
+
+  // Captions — Nunito Light 12sp
+  static TextStyle caption({Color? color}) => _nunito(
+        fontSize: 12,
+        fontWeight: FontWeight.w300,
+        color: color ?? HearTechColors.textSecondary,
+      );
+
+  // Buttons — Nunito Bold 16sp
+  static TextStyle button({Color? color}) => _nunito(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: color ?? HearTechColors.white,
+      );
+
+  // Big numbers — Nunito ExtraBold 48sp (risk score)
+  static TextStyle bigNumber({Color? color}) => _nunito(
+        fontSize: 48,
+        fontWeight: FontWeight.w800,
+        color: color ?? HearTechColors.deepTeal,
+      );
+
+  // Handover code — Nunito ExtraBold 28sp
+  static TextStyle handoverCode({Color? color}) => _nunito(
+        fontSize: 28,
+        fontWeight: FontWeight.w800,
+        color: color ?? HearTechColors.textPrimary,
+        letterSpacing: 4,
+      );
+
+  // App bar title
+  static TextStyle appBarTitle({Color? color}) => _nunito(
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+        color: color ?? HearTechColors.white,
+      );
+
+  // Small bold labels
+  static TextStyle label({Color? color}) => _nunito(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: color ?? HearTechColors.textSecondary,
+      );
+
+  // Subtitle
+  static TextStyle subtitle({Color? color}) => _nunito(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: color ?? HearTechColors.textSecondary,
+      );
+}
+
+/// Border radii and shadows used across the app.
+class HearTechDecorations {
+  HearTechDecorations._();
+
+  // Border radii
+  static const double cardRadius = 20.0;
+  static const double buttonRadius = 16.0;
+  static const double inputRadius = 14.0;
+  static const double badgeRadius = 50.0;
+  static const double smallRadius = 8.0;
+
+  static BorderRadius cardBorderRadius = BorderRadius.circular(cardRadius);
+  static BorderRadius buttonBorderRadius = BorderRadius.circular(buttonRadius);
+  static BorderRadius inputBorderRadius = BorderRadius.circular(inputRadius);
+  static BorderRadius badgeBorderRadius = BorderRadius.circular(badgeRadius);
+
+  // Shadows
+  static List<BoxShadow> cardShadow = [
+    BoxShadow(
+      color: HearTechColors.deepTeal.withValues(alpha: 0.06),
+      blurRadius: 16,
+      offset: const Offset(0, 4),
     ),
-    appBarTheme: AppBarTheme(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      centerTitle: true,
-      iconTheme: const IconThemeData(color: textPrimary),
-      titleTextStyle: heading2,
+  ];
+
+  static List<BoxShadow> subtleShadow = [
+    BoxShadow(
+      color: HearTechColors.deepTeal.withValues(alpha: 0.04),
+      blurRadius: 8,
+      offset: const Offset(0, 2),
     ),
-    elevatedButtonTheme: ElevatedButtonThemeData(style: primaryButton),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: secondaryButton),
-    cardTheme: CardThemeData(
-      color: surface,
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-    ),
-    dividerColor: dividerColor,
-    textTheme: TextTheme(
-      displayLarge: display,
-      headlineLarge: heading1,
-      headlineMedium: heading2,
-      bodyLarge: bodyText,
-      bodySmall: caption,
-      labelLarge: buttonText,
-    ),
+  ];
+
+  // Card decoration
+  static BoxDecoration cardDecoration = BoxDecoration(
+    color: HearTechColors.white,
+    borderRadius: cardBorderRadius,
+    boxShadow: cardShadow,
   );
 
-  // ─── 7. RISK LEVEL HELPERS ─────────────────────────────────────────
-  static Color riskColor(String level) {
-    switch (level.toLowerCase()) {
-      case 'high':   return accentCoral;
-      case 'medium': return accentYellow;
-      case 'low':    return accentGreen;
-      default:       return textSecondary;
-    }
-  }
+  // Padding
+  static const double screenPadding = 16.0;
+  static const double cardPadding = 16.0;
+  static const double sectionSpacing = 24.0;
 
-  static String riskLabel(int score) {
-    if (score >= 67) return 'High';
-    if (score >= 34) return 'Medium';
-    return 'Low';
+  // Button height
+  static const double buttonHeight = 56.0;
+}
+
+/// The main ThemeData for HearTech.
+class HearTechTheme {
+  HearTechTheme._();
+
+  static ThemeData get lightTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: HearTechColors.background,
+      primaryColor: HearTechColors.deepTeal,
+      colorScheme: const ColorScheme.light(
+        primary: HearTechColors.deepTeal,
+        secondary: HearTechColors.mediumTeal,
+        surface: HearTechColors.white,
+        error: HearTechColors.coralRed,
+        onPrimary: HearTechColors.white,
+        onSecondary: HearTechColors.white,
+        onSurface: HearTechColors.textPrimary,
+        onError: HearTechColors.white,
+      ),
+
+      // App Bar
+      appBarTheme: AppBarTheme(
+        backgroundColor: HearTechColors.deepTeal,
+        foregroundColor: HearTechColors.white,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: HearTechTextStyles.appBarTitle(),
+        iconTheme: const IconThemeData(color: HearTechColors.white),
+      ),
+
+      // Cards
+      cardTheme: CardThemeData(
+        color: HearTechColors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: HearTechDecorations.cardBorderRadius,
+        ),
+        margin: EdgeInsets.zero,
+      ),
+
+      // Primary button
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: HearTechColors.deepTeal,
+          foregroundColor: HearTechColors.white,
+          minimumSize: const Size(double.infinity, HearTechDecorations.buttonHeight),
+          shape: RoundedRectangleBorder(
+            borderRadius: HearTechDecorations.buttonBorderRadius,
+          ),
+          textStyle: HearTechTextStyles.button(),
+          elevation: 0,
+        ),
+      ),
+
+      // Secondary / outlined button
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: HearTechColors.deepTeal,
+          minimumSize: const Size(double.infinity, HearTechDecorations.buttonHeight),
+          shape: RoundedRectangleBorder(
+            borderRadius: HearTechDecorations.buttonBorderRadius,
+          ),
+          side: const BorderSide(color: HearTechColors.deepTeal, width: 1.5),
+          textStyle: HearTechTextStyles.button(color: HearTechColors.deepTeal),
+          elevation: 0,
+        ),
+      ),
+
+      // Text button
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: HearTechColors.deepTeal,
+          textStyle: HearTechTextStyles.body(color: HearTechColors.deepTeal),
+        ),
+      ),
+
+      // Input decoration
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: HearTechColors.paleTeal,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        border: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: const BorderSide(color: HearTechColors.deepTeal, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: const BorderSide(color: HearTechColors.coralRed, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: const BorderSide(color: HearTechColors.coralRed, width: 1.5),
+        ),
+        floatingLabelStyle: HearTechTextStyles.caption(color: HearTechColors.deepTeal),
+        labelStyle: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+        hintStyle: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+        errorStyle: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+        prefixIconColor: HearTechColors.deepTeal,
+        suffixIconColor: HearTechColors.textSecondary,
+      ),
+
+      // Divider
+      dividerTheme: const DividerThemeData(
+        color: HearTechColors.divider,
+        thickness: 1,
+        space: 0,
+      ),
+
+      // Bottom nav
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: HearTechColors.white,
+        selectedItemColor: HearTechColors.deepTeal,
+        unselectedItemColor: HearTechColors.textSecondary,
+        type: BottomNavigationBarType.fixed,
+        elevation: 8,
+        selectedLabelStyle: HearTechTextStyles.caption(color: HearTechColors.deepTeal),
+        unselectedLabelStyle: HearTechTextStyles.caption(),
+      ),
+
+      // Snackbar
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: HearTechColors.textPrimary,
+        contentTextStyle: HearTechTextStyles.body(color: HearTechColors.white),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(HearTechDecorations.smallRadius),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+
+      // Dialog
+      dialogTheme: DialogThemeData(
+        backgroundColor: HearTechColors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: HearTechDecorations.cardBorderRadius,
+        ),
+        titleTextStyle: HearTechTextStyles.sectionHeader(),
+        contentTextStyle: HearTechTextStyles.body(),
+      ),
+
+      // Chip
+      chipTheme: ChipThemeData(
+        backgroundColor: HearTechColors.paleTeal,
+        selectedColor: HearTechColors.deepTeal,
+        labelStyle: HearTechTextStyles.caption(),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(HearTechDecorations.badgeRadius),
+        ),
+        side: BorderSide.none,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      ),
+
+      // Floating action button
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: HearTechColors.deepTeal,
+        foregroundColor: HearTechColors.white,
+        elevation: 4,
+      ),
+
+      // Tab bar
+      tabBarTheme: TabBarThemeData(
+        labelColor: HearTechColors.deepTeal,
+        unselectedLabelColor: HearTechColors.textSecondary,
+        indicatorColor: HearTechColors.deepTeal,
+        labelStyle: HearTechTextStyles.subtitle(color: HearTechColors.deepTeal),
+        unselectedLabelStyle: HearTechTextStyles.subtitle(),
+      ),
+
+      // Progress indicator
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: HearTechColors.deepTeal,
+        linearTrackColor: HearTechColors.paleTeal,
+      ),
+    );
   }
 }

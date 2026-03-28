@@ -1,247 +1,192 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/router/app_router.dart';
-import '../../../services/firebase_auth_service.dart';
-import '../../../services/firestore_service.dart';
-import '../../../core/constants/app_constants.dart';
-import '../widgets/step_indicator.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/models/user_model.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/heartech_input_field.dart';
+import 'package:heartech/shared/widgets/step_indicator.dart';
 
-class TeacherRegistrationScreen extends StatefulWidget {
+/// Teacher Registration — 5 step flow.
+class TeacherRegistrationScreen extends ConsumerStatefulWidget {
   const TeacherRegistrationScreen({super.key});
 
   @override
-  State<TeacherRegistrationScreen> createState() => _TeacherRegistrationScreenState();
+  ConsumerState<TeacherRegistrationScreen> createState() => _TeacherRegistrationScreenState();
 }
 
-class _TeacherRegistrationScreenState extends State<TeacherRegistrationScreen> {
-  final _authService = FirebaseAuthService();
-  final _firestoreService = FirestoreService();
-  final _pageController = PageController();
-  
+class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationScreen> {
   int _currentStep = 0;
   bool _isLoading = false;
 
-  // Step 1: Credentials
+  // Step 1 — Auth
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
-  // Step 2: Personal
+  final _confirmPasswordController = TextEditingController();
+  bool _obscurePassword = true;
+
+  // Step 2 — Personal
   final _nameController = TextEditingController();
-  String? _selectedGender;
+  String? _gender;
 
-  // Step 3: School
+  // Step 3 — Professional
   final _schoolController = TextEditingController();
-  final _gradeController = TextEditingController();
   final _cityController = TextEditingController();
+  final _yearsController = TextEditingController();
+  final Set<String> _selectedGrades = {};
+  final List<String> _allGrades = [
+    'Pre-K', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+    'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
+  ];
 
-  void _nextStep() {
-    if (_currentStep < 3) {
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeIn,
-      );
+  // Step 4 — Photo
+  File? _photoFile;
+  String? _photoUrl;
+
+  final _formKeys = List.generate(5, (_) => GlobalKey<FormState>());
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _nameController.dispose();
+    _schoolController.dispose();
+    _cityController.dispose();
+    _yearsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _nextStep() async {
+    if (_currentStep < 4 && _formKeys[_currentStep].currentState?.validate() != true) return;
+
+    if (_currentStep == 0) {
+      setState(() => _isLoading = true);
+      try {
+        final authService = ref.read(firebaseAuthServiceProvider);
+        if (authService.currentUser == null) {
+          await authService.createAccountWithEmail(
+            _emailController.text.trim(),
+            _passwordController.text,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_getAuthError(e.toString())), backgroundColor: HearTechColors.coralRed),
+          );
+        }
+        setState(() => _isLoading = false);
+        return;
+      }
+      setState(() => _isLoading = false);
+    }
+
+    if (_currentStep < 4) {
       setState(() => _currentStep++);
     } else {
-      _submitRegistration();
+      await _submitProfile();
     }
   }
 
   void _previousStep() {
-    if (_currentStep > 0) {
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeIn,
-      );
-      setState(() => _currentStep--);
-    } else {
-      Navigator.pop(context);
+    if (_currentStep > 0) setState(() => _currentStep--);
+  }
+
+  Future<void> _signUpWithGoogle() async {
+    setState(() => _isLoading = true);
+    try {
+      final authService = ref.read(firebaseAuthServiceProvider);
+      final result = await authService.signInWithGoogle();
+      if (result != null) {
+        _emailController.text = result.user?.email ?? '';
+        _nameController.text = result.user?.displayName ?? '';
+        setState(() => _currentStep = 1);
+      }
+    } catch (_) {}
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _pickPhoto() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
+    if (picked != null) {
+      setState(() => _photoFile = File(picked.path));
+      final cloudinary = ref.read(cloudinaryServiceProvider);
+      final url = await cloudinary.uploadImage(_photoFile!, folder: 'heartech/profiles');
+      if (url != null) setState(() => _photoUrl = url);
     }
   }
 
-  Future<void> _submitRegistration() async {
+  Future<void> _submitProfile() async {
     setState(() => _isLoading = true);
     try {
-      final userCred = await _authService.signUpWithEmail(
-        _emailController.text,
-        _passwordController.text,
+      final authService = ref.read(firebaseAuthServiceProvider);
+      final firestoreService = ref.read(firestoreServiceProvider);
+      final uid = authService.uid!;
+
+      final user = UserModel(
+        uid: uid,
+        email: _emailController.text.trim().isNotEmpty
+            ? _emailController.text.trim()
+            : authService.currentUser?.email ?? '',
+        role: 'teacher',
+        name: _nameController.text.trim(),
+        gender: _gender,
+        profilePhotoUrl: _photoUrl,
+        createdAt: DateTime.now(),
+        lastLoginAt: DateTime.now(),
+        schoolName: _schoolController.text.trim(),
+        gradeLevelsTaught: _selectedGrades.toList(),
+        yearsExperience: int.tryParse(_yearsController.text),
+        city: _cityController.text.trim(),
       );
-      final uid = userCred.user!.uid;
 
-      await _firestoreService.setUserProfile(uid, {
-        'uid': uid,
-        'email': _emailController.text.trim().toLowerCase(),
-        'role': AppConstants.roleTeacher,
-        'name': _nameController.text.trim(),
-        'gender': _selectedGender,
-        'schoolName': _schoolController.text.trim(),
-        'gradeLevel': _gradeController.text.trim(),
-        'location': {'city': _cityController.text.trim()},
-        'createdAt': DateTime.now().toIso8601String(),
-      });
-
-      if (mounted) {
-        Navigator.pushReplacementNamed(
-          context, AppRouter.authCheck,
-          arguments: {'uid': uid},
-        );
-      }
+      await firestoreService.setUser(user);
+      if (mounted) context.go(Routes.teacherDashboard);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
+          SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+    setState(() => _isLoading = false);
   }
 
-  // ─── Step 1 Builder ──────────────────────────────
-  Widget _buildStep1() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text("Account Details", style: AppTheme.heading2),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: AppTheme.inputDecoration("Professional Email", Icons.email_outlined),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          obscureText: true,
-          decoration: AppTheme.inputDecoration("Password", Icons.lock_outline),
-        ),
-      ],
-    );
-  }
-
-  // ─── Step 2 Builder ──────────────────────────────
-  Widget _buildStep2() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text("Personal Information", style: AppTheme.heading2),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _nameController,
-          textCapitalization: TextCapitalization.words,
-          decoration: AppTheme.inputDecoration("Full Name", Icons.person_outline),
-        ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          initialValue: _selectedGender,
-          decoration: AppTheme.inputDecoration("Gender", Icons.wc),
-          items: ['Male', 'Female', 'Other', 'Prefer not to say']
-              .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-              .toList(),
-          onChanged: (v) => setState(() => _selectedGender = v),
-        ),
-      ],
-    );
-  }
-
-  // ─── Step 3 Builder ──────────────────────────────
-  Widget _buildStep3() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text("School Details", style: AppTheme.heading2),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _schoolController,
-          textCapitalization: TextCapitalization.words,
-          decoration: AppTheme.inputDecoration("School Name", Icons.school_outlined),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _gradeController,
-          decoration: AppTheme.inputDecoration("Grade/Class Level (e.g. Pre-K, 1st Grade)", Icons.child_care),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _cityController,
-          textCapitalization: TextCapitalization.words,
-          decoration: AppTheme.inputDecoration("City", Icons.location_city),
-        ),
-      ],
-    );
-  }
-
-  // ─── Step 4 Builder ──────────────────────────────
-  Widget _buildStep4() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Icon(Icons.check_circle_outline, size: 80, color: AppTheme.accentGreen),
-        const SizedBox(height: 24),
-        Text("All Set!", textAlign: TextAlign.center, style: AppTheme.heading1),
-        const SizedBox(height: 16),
-        Text(
-          "Review your details and tap Create Profile to begin recording classroom observations.",
-          textAlign: TextAlign.center,
-          style: AppTheme.bodyText,
-        ),
-        const SizedBox(height: 32),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppTheme.primaryPale,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Name: ${_nameController.text}", style: AppTheme.bodyText),
-              const SizedBox(height: 8),
-              Text("School: ${_schoolController.text}", style: AppTheme.bodyText),
-              const SizedBox(height: 8),
-              Text("Grade: ${_gradeController.text}", style: AppTheme.bodyText),
-            ],
-          ),
-        )
-      ],
-    );
+  String _getAuthError(String error) {
+    if (error.contains('email-already-in-use')) return 'Email already registered.';
+    if (error.contains('weak-password')) return 'Password is too weak.';
+    return 'Registration failed.';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: HearTechColors.background,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: _previousStep,
-        ),
+        backgroundColor: Colors.transparent, elevation: 0,
+        leading: _currentStep > 0
+            ? IconButton(icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary), onPressed: _previousStep)
+            : IconButton(icon: const Icon(Icons.close, color: HearTechColors.textPrimary), onPressed: () => context.go(Routes.teacherLogin)),
+        title: Text('Teacher Registration', style: HearTechTextStyles.sectionHeader()),
+        centerTitle: true,
       ),
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-              child: StepIndicator(currentStep: _currentStep, totalSteps: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: StepIndicator(totalSteps: 5, currentStep: _currentStep),
             ),
             Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  SingleChildScrollView(padding: const EdgeInsets.all(24), child: _buildStep1()),
-                  SingleChildScrollView(padding: const EdgeInsets.all(24), child: _buildStep2()),
-                  SingleChildScrollView(padding: const EdgeInsets.all(24), child: _buildStep3()),
-                  SingleChildScrollView(padding: const EdgeInsets.all(24), child: _buildStep4()),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: ElevatedButton(
-                style: AppTheme.primaryButton,
-                onPressed: _isLoading ? null : _nextStep,
-                child: _isLoading
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                    : Text(_currentStep == 3 ? "Create Profile" : "Continue"),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: _buildStep(),
               ),
             ),
           ],
@@ -249,4 +194,170 @@ class _TeacherRegistrationScreenState extends State<TeacherRegistrationScreen> {
       ),
     );
   }
+
+  Widget _buildStep() {
+    switch (_currentStep) {
+      case 0: return _buildAuthStep();
+      case 1: return _buildPersonalStep();
+      case 2: return _buildProfessionalStep();
+      case 3: return _buildPhotoStep();
+      case 4: return _buildReviewStep();
+      default: return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildAuthStep() {
+    return Form(key: _formKeys[0], child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Create Your Account', style: HearTechTextStyles.screenTitle()),
+        const SizedBox(height: 8),
+        Text('Step 1 of 5 — Authentication', style: HearTechTextStyles.caption()),
+        const SizedBox(height: 32),
+        HearTechInputField(controller: _emailController, label: 'Email', prefixIcon: Icons.email_outlined,
+          keyboardType: TextInputType.emailAddress,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : (!v.contains('@') ? 'Invalid email' : null)),
+        const SizedBox(height: 16),
+        HearTechInputField(controller: _passwordController, label: 'Password', prefixIcon: Icons.lock_outline,
+          obscureText: _obscurePassword,
+          suffix: IconButton(icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword)),
+          validator: (v) => (v != null && v.length < 6) ? 'Min 6 characters' : ((v == null || v.isEmpty) ? 'Required' : null)),
+        const SizedBox(height: 16),
+        HearTechInputField(controller: _confirmPasswordController, label: 'Confirm Password',
+          prefixIcon: Icons.lock_outline, obscureText: true,
+          validator: (v) => v != _passwordController.text ? 'Passwords do not match' : null),
+        const SizedBox(height: 24),
+        HearTechButton(label: 'Create Account', onPressed: _nextStep, isLoading: _isLoading),
+        const SizedBox(height: 16),
+        HearTechButton(label: 'Sign up with Google', onPressed: _signUpWithGoogle, isSecondary: true, icon: Icons.g_mobiledata),
+      ],
+    ));
+  }
+
+  Widget _buildPersonalStep() {
+    return Form(key: _formKeys[1], child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Personal Information', style: HearTechTextStyles.screenTitle()),
+        const SizedBox(height: 8),
+        Text('Step 2 of 5', style: HearTechTextStyles.caption()),
+        const SizedBox(height: 32),
+        HearTechInputField(controller: _nameController, label: 'Full Name', prefixIcon: Icons.person_outline,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          initialValue: _gender, decoration: const InputDecoration(labelText: 'Gender', prefixIcon: Icon(Icons.wc)),
+          items: ['Male', 'Female', 'Other'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+          onChanged: (v) => setState(() => _gender = v)),
+        const SizedBox(height: 24),
+        HearTechButton(label: 'Continue', onPressed: _nextStep),
+      ],
+    ));
+  }
+
+  Widget _buildProfessionalStep() {
+    return Form(key: _formKeys[2], child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('School & Teaching', style: HearTechTextStyles.screenTitle()),
+        const SizedBox(height: 8),
+        Text('Step 3 of 5', style: HearTechTextStyles.caption()),
+        const SizedBox(height: 32),
+        HearTechInputField(controller: _schoolController, label: 'School Name', prefixIcon: Icons.school_outlined,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
+        const SizedBox(height: 16),
+        Text('Grade Levels Taught', style: HearTechTextStyles.subtitle()),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: _allGrades.map((grade) {
+            final selected = _selectedGrades.contains(grade);
+            return FilterChip(
+              label: Text(grade),
+              selected: selected,
+              selectedColor: HearTechColors.deepTeal,
+              labelStyle: TextStyle(
+                color: selected ? HearTechColors.white : HearTechColors.textPrimary,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              ),
+              onSelected: (val) {
+                setState(() {
+                  if (val) { _selectedGrades.add(grade); }
+                  else { _selectedGrades.remove(grade); }
+                });
+              },
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 16),
+        HearTechInputField(controller: _cityController, label: 'City', prefixIcon: Icons.location_city_outlined),
+        const SizedBox(height: 16),
+        HearTechInputField(controller: _yearsController, label: 'Years of Experience', prefixIcon: Icons.timeline_outlined,
+          keyboardType: TextInputType.number),
+        const SizedBox(height: 24),
+        HearTechButton(label: 'Continue', onPressed: _nextStep),
+      ],
+    ));
+  }
+
+  Widget _buildPhotoStep() {
+    return Form(key: _formKeys[3], child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Profile Photo', style: HearTechTextStyles.screenTitle()),
+        const SizedBox(height: 8),
+        Text('Step 4 of 5 (Optional)', style: HearTechTextStyles.caption()),
+        const SizedBox(height: 32),
+        Center(
+          child: GestureDetector(
+            onTap: _pickPhoto,
+            child: CircleAvatar(radius: 60, backgroundColor: HearTechColors.paleTeal,
+              backgroundImage: _photoFile != null ? FileImage(_photoFile!) : null,
+              child: _photoFile == null ? const Icon(Icons.camera_alt_outlined, size: 32, color: HearTechColors.deepTeal) : null),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Center(child: TextButton(onPressed: _pickPhoto, child: Text('Choose Photo', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)))),
+        const SizedBox(height: 32),
+        HearTechButton(label: 'Continue', onPressed: _nextStep),
+        const SizedBox(height: 12),
+        Center(child: TextButton(onPressed: _nextStep, child: Text('Skip for now', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)))),
+      ],
+    ));
+  }
+
+  Widget _buildReviewStep() {
+    return Form(key: _formKeys[4], child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Review & Submit', style: HearTechTextStyles.screenTitle()),
+        const SizedBox(height: 8),
+        Text('Step 5 of 5', style: HearTechTextStyles.caption()),
+        const SizedBox(height: 24),
+        Container(
+          width: double.infinity, padding: const EdgeInsets.all(20),
+          decoration: HearTechDecorations.cardDecoration,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _r('Name', _nameController.text),
+            _r('Gender', _gender ?? '-'),
+            _r('School', _schoolController.text.isNotEmpty ? _schoolController.text : '-'),
+            _r('Grades', _selectedGrades.isNotEmpty ? _selectedGrades.join(', ') : '-'),
+            _r('City', _cityController.text.isNotEmpty ? _cityController.text : '-'),
+            _r('Experience', _yearsController.text.isNotEmpty ? '${_yearsController.text} years' : '-'),
+          ]),
+        ),
+        const SizedBox(height: 24),
+        HearTechButton(label: 'Create Profile', onPressed: _nextStep, isLoading: _isLoading),
+      ],
+    ));
+  }
+
+  Widget _r(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(children: [
+      SizedBox(width: 100, child: Text(label, style: HearTechTextStyles.caption())),
+      Expanded(child: Text(value, style: HearTechTextStyles.body())),
+    ]),
+  );
 }
