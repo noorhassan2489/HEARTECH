@@ -5,6 +5,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:heartech/shared/models/speech_log_model.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 
@@ -60,13 +62,28 @@ class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
   late List<Map<String, dynamic>> _words;
   int _currentWordIndex = 0;
   bool _isLoading = false;
-  bool _isRecording = false;
+
 
   // Per-word results
   final List<Map<String, dynamic>> _wordResults = [];
   String? _currentClarity;
   int? _currentMatchScore;
   List<String> _currentPhonemesMissed = [];
+
+  late final AudioRecorder _audioRecorder;
+  String? _recordedFilePath;
+
+  @override
+  void initState() {
+    super.initState();
+    _audioRecorder = AudioRecorder();
+  }
+
+  @override
+  void dispose() {
+    _audioRecorder.dispose();
+    super.dispose();
+  }
 
   void _startGame() {
     _words = _categories[_selectedCategory]!;
@@ -76,12 +93,27 @@ class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
   }
 
   Future<void> _startRecording() async {
-    setState(() { _phase = 3; _isRecording = true; });
+    // Request permission from the user
+    if (await _audioRecorder.hasPermission()) {
+      setState(() { _phase = 3; });
 
-    // Simulate 3-second recording + API analysis
-    await Future.delayed(const Duration(seconds: 3));
+      final tempDir = await getTemporaryDirectory();
+      final path = '${tempDir.path}/show_tell_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
+      // Start real recording
+      await _audioRecorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
+        path: path,
+      );
 
-    // Simulated results — in production: mic → WAV → FastAPI → Whisper → analysis
+      // Record for 3 seconds
+      await Future.delayed(const Duration(seconds: 3));
+
+      // Stop recording
+      _recordedFilePath = await _audioRecorder.stop();
+      print('Recorded audio saved to: $_recordedFilePath');
+
+      // Simulated results — in production: path → WAV → FastAPI → Whisper → analysis
     final word = _words[_currentWordIndex];
     final phonemes = word['phonemes'] as List<String>;
     final missed = <String>[];
@@ -105,12 +137,20 @@ class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
     }
 
     setState(() {
-      _isRecording = false;
+
       _phase = 4;
       _currentClarity = clarity;
       _currentMatchScore = matchPct;
       _currentPhonemesMissed = missed;
     });
+    } else {
+      // Permission denied
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission is required to play this game.'), backgroundColor: HearTechColors.coralRed),
+        );
+      }
+    }
   }
 
   void _nextWord() {
@@ -341,7 +381,7 @@ class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
                 ),
               ).animate(onPlay: (c) => c.repeat(reverse: true))
                   .scale(begin: const Offset(1, 1), end: const Offset(1.3, 1.3), duration: 1000.ms)
-                  .fadeOut(begin: 1, end: 0.3),
+                  .fade(begin: 1, end: 0.3),
               // Middle pulsing ring
               Container(
                 width: 130, height: 130,
@@ -365,7 +405,7 @@ class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
           ),
           const SizedBox(height: 32),
           Text('Listening...', style: HearTechTextStyles.screenTitle(color: HearTechColors.coralRed))
-              .animate(onPlay: (c) => c.repeat(reverse: true)).fadeOut(begin: 1, end: 0.5, duration: 800.ms),
+              .animate(onPlay: (c) => c.repeat(reverse: true)).fade(begin: 1, end: 0.5, duration: 800.ms),
           const SizedBox(height: 8),
           Text('Say the word clearly', style: HearTechTextStyles.caption()),
         ],

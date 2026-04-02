@@ -4,6 +4,7 @@ import 'package:heartech/services/firebase_auth_service.dart';
 import 'package:heartech/services/firestore_service.dart';
 import 'package:heartech/services/fastapi_service.dart';
 import 'package:heartech/services/cloudinary_service.dart';
+import 'package:heartech/services/analytics_service.dart';
 import 'package:heartech/shared/models/user_model.dart';
 import 'package:heartech/shared/models/child_model.dart';
 
@@ -26,6 +27,10 @@ final fastApiServiceProvider = Provider<FastApiService>((ref) {
 
 final cloudinaryServiceProvider = Provider<CloudinaryService>((ref) {
   return CloudinaryService();
+});
+
+final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
+  return AnalyticsService();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

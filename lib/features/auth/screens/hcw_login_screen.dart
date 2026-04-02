@@ -98,32 +98,66 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
   }
 
   Future<void> _forgotPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your email first')),
-      );
-      return;
-    }
-    try {
-      final authService = ref.read(firebaseAuthServiceProvider);
-      await authService.sendPasswordResetEmail(email);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Password reset email sent!'),
-            backgroundColor: HearTechColors.green,
+    final resetController = TextEditingController(text: _emailController.text.trim());
+    final bool? result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: HearTechColors.background,
+        shape: RoundedRectangleBorder(borderRadius: HearTechDecorations.cardBorderRadius),
+        title: Text('Reset Password', style: HearTechTextStyles.screenTitle()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Enter your email to receive a password reset link.', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
+            const SizedBox(height: 16),
+            HearTechInputField(
+              controller: resetController,
+              label: 'Email',
+              prefixIcon: Icons.email_outlined,
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
           ),
-        );
+          HearTechButton(
+            label: 'Send',
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      final email = resetController.text.trim();
+      if (email.isEmpty || !email.contains('@')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter a valid email address'), backgroundColor: HearTechColors.coralRed),
+          );
+        }
+        return;
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: HearTechColors.coralRed,
-          ),
-        );
+
+      setState(() => _isLoading = true);
+      try {
+        await ref.read(firebaseAuthServiceProvider).sendPasswordResetEmail(email);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Password reset email sent!'), backgroundColor: HearTechColors.green),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: HearTechColors.coralRed),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }

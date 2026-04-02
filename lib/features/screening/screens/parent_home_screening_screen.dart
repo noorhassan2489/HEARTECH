@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
@@ -29,60 +28,30 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   String _riskLevel = 'low';
   List<Map<String, dynamic>> _questions = [];
 
-  void _loadQuestions(int bracket) {
-    final Map<int, List<Map<String, dynamic>>> parentQs = {
-      1: [
-        {'id': 'par1_q1', 'q': 'Does your baby startle, blink, or jump at sudden loud sounds?', 'clinical': false},
-        {'id': 'par1_q2', 'q': 'Does your baby calm down when you talk or sing to them?', 'clinical': false},
-        {'id': 'par1_q3', 'q': 'Does your baby seem to recognize your voice vs a stranger\'s?', 'clinical': false},
-        {'id': 'par1_q4', 'q': 'Does your baby make sounds like coos, gurgles, or babbling?', 'clinical': false},
-        {'id': 'par1_q5', 'q': 'Does your baby look toward the source of sounds like a rattle?', 'clinical': false},
-        {'id': 'par1_q6', 'q': 'Does your baby react differently to loud and soft sounds?', 'clinical': false},
-        {'id': 'par1_q7', 'q': 'Was your baby born before 37 weeks (premature)?', 'clinical': true},
-        {'id': 'par1_q8', 'q': 'Does your family have a history of hearing problems?', 'clinical': true},
-      ],
-      2: [
-        {'id': 'par2_q1', 'q': 'Does your baby turn to look at you when you call their name?', 'clinical': false},
-        {'id': 'par2_q2', 'q': 'Does your baby understand simple words like "No" or their name?', 'clinical': false},
-        {'id': 'par2_q3', 'q': 'Does your baby babble with different sounds strung together?', 'clinical': false},
-        {'id': 'par2_q4', 'q': 'Does your baby wave bye-bye or point at things they want?', 'clinical': false},
-        {'id': 'par2_q5', 'q': 'Does your baby try to copy sounds you make?', 'clinical': false},
-        {'id': 'par2_q6', 'q': 'Has your baby started saying any words like mama or dada?', 'clinical': false},
-        {'id': 'par2_q7', 'q': 'Does your baby only notice you when they can see you, not when called?', 'clinical': true},
-        {'id': 'par2_q8', 'q': 'Has your doctor mentioned ear fluid or ear infections?', 'clinical': true},
-      ],
-      3: [
-        {'id': 'par3_q1', 'q': 'Can your child point to their nose or tummy when you ask?', 'clinical': false},
-        {'id': 'par3_q2', 'q': 'Can your child follow a simple instruction without you pointing?', 'clinical': false},
-        {'id': 'par3_q3', 'q': 'Does your child enjoy songs, nursery rhymes, or being read to?', 'clinical': false},
-        {'id': 'par3_q4', 'q': 'Is your child using more new words every month?', 'clinical': false},
-        {'id': 'par3_q5', 'q': 'Does your child try to put two words together like "more juice"?', 'clinical': false},
-        {'id': 'par3_q6', 'q': 'Does your child look at you or TV when they hear familiar sounds?', 'clinical': false},
-        {'id': 'par3_q7', 'q': 'Do you repeat things several times for your child to respond?', 'clinical': true},
-        {'id': 'par3_q8', 'q': 'Does your child pull at their ears frequently?', 'clinical': true},
-      ],
-      4: [
-        {'id': 'par4_q1', 'q': 'Does your child respond when you call from a different room?', 'clinical': false},
-        {'id': 'par4_q2', 'q': 'Can your child follow instructions with two or three steps?', 'clinical': false},
-        {'id': 'par4_q3', 'q': 'Can your child tell simple stories or talk about their day?', 'clinical': false},
-        {'id': 'par4_q4', 'q': 'Do people outside your family understand most of what your child says?', 'clinical': false},
-        {'id': 'par4_q5', 'q': 'Does your child enjoy conversation and ask lots of questions?', 'clinical': false},
-        {'id': 'par4_q6', 'q': 'Does your child understand colors, shapes, and family member names?', 'clinical': false},
-        {'id': 'par4_q7', 'q': 'Does your child set the TV very loud, louder than others prefer?', 'clinical': true},
-        {'id': 'par4_q8', 'q': 'Does your child frequently say "what" or "huh"?', 'clinical': true},
-      ],
-      5: [
-        {'id': 'par5_q1', 'q': 'Does your child frequently ask you to repeat things?', 'clinical': false},
-        {'id': 'par5_q2', 'q': 'Does your child struggle with schoolwork or following teacher instructions?', 'clinical': false},
-        {'id': 'par5_q3', 'q': 'Is your child\'s speech hard to understand or do they mispronounce words?', 'clinical': false},
-        {'id': 'par5_q4', 'q': 'Does your child zone out, especially in noisy environments?', 'clinical': false},
-        {'id': 'par5_q5', 'q': 'Does your child find it hard to follow conversations with background noise?', 'clinical': false},
-        {'id': 'par5_q6', 'q': 'Does your child complain of ringing sounds or ear pain?', 'clinical': false},
-        {'id': 'par5_q7', 'q': 'Does your child turn one ear toward you when listening?', 'clinical': false},
-        {'id': 'par5_q8', 'q': 'Has your child had more than 3 ear infections in the past 12 months?', 'clinical': true},
-      ],
-    };
-    _questions = parentQs[bracket] ?? parentQs[1]!;
+  bool _isLoading = false;
+
+  Future<void> _loadQuestions(int bracket) async {
+    setState(() => _isLoading = true);
+    try {
+      final fastApi = ref.read(fastApiServiceProvider);
+      final res = await fastApi.getQuestionnaire(role: 'parent', bracketId: bracket);
+      if (mounted) {
+        setState(() {
+          final fetched = List<Map<String, dynamic>>.from(res['questions'] ?? []);
+          _questions = fetched.map((q) => {
+            'id': q['id'],
+            'q': q['text'],
+            'clinical': q['isClinical'],
+          }).toList();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load: $e'), backgroundColor: HearTechColors.coralRed));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _selectChild(ChildModel child) {
@@ -106,43 +75,38 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
 
   Future<void> _submit() async {
     setState(() { _step = 2; });
-    await Future.delayed(const Duration(seconds: 2));
-
-    int pts = 0;
-    for (final a in _answers) {
-      if (a.answer == 'no') pts += 3;
-      if (a.answer == 'sometimes') pts += 1;
-    }
-    final score = (pts / (_questions.length * 3) * 100).clamp(0, 100).round();
-    _riskLevel = score >= 67 ? 'high' : (score >= 34 ? 'medium' : 'low');
 
     try {
-      final fs = ref.read(firestoreServiceProvider);
-      final uid = ref.read(firebaseAuthServiceProvider).uid!;
-      final sid = fs.generateId('screenings');
+      final fastApi = ref.read(fastApiServiceProvider);
+      
+      final apiAnswers = _answers.map((a) {
+        final qMatched = _questions.firstWhere((q) => q['id'] == a.questionId, orElse: () => {'clinical': false});
+        return {
+          'questionId': a.questionId,
+          'answer': a.answer,
+          'isClinical': qMatched['clinical'],
+        };
+      }).toList();
 
-      final screening = ScreeningModel(
-        screeningId: sid,
-        conductedBy: uid,
-        conductorRole: 'parent',
-        date: DateTime.now(),
+      final response = await fastApi.calculateRiskScore(
+        answers: apiAnswers,
         ageBracket: _selectedChild!.ageBracket,
-        answers: _answers,
-        riskScore: score,
-        riskLevel: _riskLevel,
+        conductorRole: 'parent',
+        childId: _selectedChild!.childId,
       );
-      await fs.addScreening(_selectedChild!.childId, screening);
-      await fs.updateChild(_selectedChild!.childId, {
-        'lastScreeningDate': Timestamp.now(),
-        'riskScore': score,
-        'riskLevel': _riskLevel,
-        'lastUpdatedAt': Timestamp.now(),
-      });
+      
+      if (mounted) {
+        setState(() {
+          _riskLevel = response['riskLevel'] as String;
+          _step = 3;
+        });
+      }
     } catch (e) {
-      // Continue to show result even if save fails
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scoring error: $e'), backgroundColor: HearTechColors.coralRed));
+        setState(() { _step = 0; });
+      }
     }
-
-    setState(() { _step = 3; });
   }
 
   @override
@@ -166,6 +130,9 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   }
 
   Widget _body() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
+    }
     switch (_step) {
       case 0: return _buildChildSelect();
       case 1: return _buildQuestion();

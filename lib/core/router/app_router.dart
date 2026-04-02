@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:heartech/core/di/providers.dart';
 
 import 'package:heartech/features/auth/screens/splash_screen.dart';
@@ -21,6 +22,7 @@ import 'package:heartech/features/screening/screens/child_profile_screen.dart';
 import 'package:heartech/features/screening/screens/teacher_observation_screen.dart';
 import 'package:heartech/features/screening/screens/invite_teacher_screen.dart';
 import 'package:heartech/features/screening/screens/pending_invites_screen.dart';
+import 'package:heartech/features/referral/screens/referral_preview_screen.dart';
 import 'package:heartech/features/screening/screens/parent_home_screening_screen.dart';
 import 'package:heartech/features/screening/screens/my_class_screen.dart';
 import 'package:heartech/features/settings/screens/hcw_profile_screen.dart';
@@ -58,7 +60,7 @@ class Routes {
   static const hcwProfile = '/hcw/profile';
   static const hcwChildProfile = '/hcw/child/:childId';
   static const hcwNewScreening = '/hcw/screening/new';
-  static const hcwReferralPreview = '/hcw/referral-preview/:childId/:referralId';
+  static const referralPreview = '/referral-preview/:childId/:referralId';
   static const parentDashboard = '/parent/dashboard';
   static const parentChildren = '/parent/children';
   static const parentSpeechGames = '/parent/speech-games';
@@ -84,6 +86,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: Routes.splash,
     debugLogDiagnostics: true,
+    observers: [ref.read(analyticsServiceProvider).getObserver()],
     redirect: (context, state) {
       final authPaths = [
         Routes.splash, Routes.roleSelect,
@@ -91,7 +94,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         Routes.parentRegister, Routes.hcwRegister, Routes.teacherRegister,
       ];
       if (authPaths.contains(state.matchedLocation)) return null;
-      if (ref.read(currentFirebaseUserProvider) == null) return Routes.splash;
+      if (FirebaseAuth.instance.currentUser == null) return Routes.splash;
       return null;
     },
     routes: [
@@ -110,7 +113,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: Routes.hcwChildProfile, builder: (c, s) => ChildProfileScreen(
           childId: s.pathParameters['childId']!, viewerRole: 'hcw')),
       GoRoute(path: Routes.hcwNewScreening, builder: (c, s) => const HcwNewScreeningScreen()),
-      GoRoute(path: Routes.hcwReferralPreview, builder: (c, s) => const _Placeholder('Referral Preview')),
+      GoRoute(path: Routes.referralPreview, builder: (c, s) => ReferralPreviewScreen(
+          childId: s.pathParameters['childId']!, referralId: s.pathParameters['referralId']!)),
       GoRoute(path: Routes.parentDashboard, builder: (c, s) => const ParentDashboardScreen()),
       GoRoute(path: Routes.parentChildren, builder: (c, s) => const _Placeholder('My Children')),
       GoRoute(path: Routes.parentSpeechGames, builder: (c, s) => const SpeechGamesScreen()),

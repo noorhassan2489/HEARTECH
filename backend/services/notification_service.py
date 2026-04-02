@@ -11,8 +11,8 @@ class NotificationService:
     Full implementation in Phase 7.
     """
 
-    ONESIGNAL_APP_ID = "YOUR_ONESIGNAL_APP_ID"
-    ONESIGNAL_REST_API_KEY = "YOUR_ONESIGNAL_REST_API_KEY"
+    ONESIGNAL_APP_ID = "0200ac21-f1e9-417b-84de-38682079fb6b"
+    ONESIGNAL_REST_API_KEY = "os_v2_app_aiakyipr5faxxbg6hbuca6p3nmi6ocjftpfe33eryf7frpa2z7jnrbam6l3nws2jxzztedjr7aylmaxlhvgjejzli43ier2ffzao5sa"
 
     @staticmethod
     async def send(

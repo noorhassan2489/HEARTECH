@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
@@ -76,6 +77,33 @@ class HcwProfileScreen extends ConsumerWidget {
                       _infoRow(Icons.business_outlined, 'Hospital', user.hospitalName ?? '-'),
                       _infoRow(Icons.location_city, 'City', user.city ?? '-'),
                       _infoRow(Icons.badge, 'License #', user.licenseNumber ?? '-'),
+                      if (user.licenseDocUrl != null && user.licenseDocUrl!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.file_present, size: 20, color: HearTechColors.deepTeal),
+                              const SizedBox(width: 12),
+                              const SizedBox(width: 100, child: Text('License Doc', style: TextStyle(color: HearTechColors.textSecondary, fontSize: 13))),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () async {
+                                    final Uri url = Uri.parse(user.licenseDocUrl!);
+                                    if (await canLaunchUrl(url)) {
+                                      await launchUrl(url);
+                                    } else {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open document.')));
+                                      }
+                                    }
+                                  },
+                                  child: const Text('View Document', style: TextStyle(
+                                    color: HearTechColors.deepTeal, decoration: TextDecoration.underline, fontWeight: FontWeight.w500)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       _infoRow(Icons.wc, 'Gender', user.gender ?? '-'),
                     ],
                   ),

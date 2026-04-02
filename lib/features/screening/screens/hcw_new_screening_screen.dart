@@ -87,73 +87,43 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
     }
   }
 
-  void _loadQuestions() {
-    final bracket = _computeAgeBracket();
-    // These match the master prompt's HCW questionnaires per bracket
-    final Map<int, List<Map<String, dynamic>>> allQuestions = {
-      1: [
-        {'id': 'hcw1_q1', 'q': 'Does the child startle or jump at sudden, loud noises?', 'clinical': false},
-        {'id': 'hcw1_q2', 'q': 'Does the child quiet down or smile when they hear your voice?', 'clinical': false},
-        {'id': 'hcw1_q3', 'q': 'Does the child move their eyes or turn toward the direction of sounds?', 'clinical': false},
-        {'id': 'hcw1_q4', 'q': 'Does the child make cooing or babbling sounds (oooo, pa, ba)?', 'clinical': false},
-        {'id': 'hcw1_q5', 'q': 'Does the child react to toys that make sounds?', 'clinical': false},
-        {'id': 'hcw1_q6', 'q': 'Was the child born prematurely or admitted to NICU?', 'clinical': true},
-        {'id': 'hcw1_q7', 'q': 'Is there any family history of childhood hearing loss?', 'clinical': true},
-        {'id': 'hcw1_q8', 'q': 'Has the child had severe illnesses since birth (meningitis, jaundice, infections)?', 'clinical': true},
-      ],
-      2: [
-        {'id': 'hcw2_q1', 'q': 'Does the child turn to look at you when you call their name?', 'clinical': false},
-        {'id': 'hcw2_q2', 'q': 'Does the child respond to simple phrases like "No" or "Come here"?', 'clinical': false},
-        {'id': 'hcw2_q3', 'q': 'Does the child understand words for common items (cup, ball, truck)?', 'clinical': false},
-        {'id': 'hcw2_q4', 'q': 'Does the child babble in long strings of sounds (mamama, bababa)?', 'clinical': false},
-        {'id': 'hcw2_q5', 'q': 'Does the child use gestures like waving bye-bye or pointing?', 'clinical': false},
-        {'id': 'hcw2_q6', 'q': 'Has the child started saying 1-2 simple words like dada or mama?', 'clinical': false},
-        {'id': 'hcw2_q7', 'q': 'Does the child only notice you when they see you, not when called?', 'clinical': true},
-        {'id': 'hcw2_q8', 'q': 'Has the child had frequent ear infections or fluid in the ears?', 'clinical': true},
-      ],
-      3: [
-        {'id': 'hcw3_q1', 'q': 'Can the child point to body parts when asked (Where is your nose)?', 'clinical': false},
-        {'id': 'hcw3_q2', 'q': 'Can the child follow simple 1-part directions without gesturing?', 'clinical': false},
-        {'id': 'hcw3_q3', 'q': 'Does the child listen to stories, songs, and rhymes?', 'clinical': false},
-        {'id': 'hcw3_q4', 'q': 'Is the child using new words and starting to put 2 words together?', 'clinical': false},
-        {'id': 'hcw3_q5', 'q': 'Does the child respond to simple questions (Who\'s that, Where\'s your shoe)?', 'clinical': false},
-        {'id': 'hcw3_q6', 'q': 'Do you have to speak loudly or repeat yourself often?', 'clinical': true},
-        {'id': 'hcw3_q7', 'q': 'Does the child frequently pull or tug at their ears?', 'clinical': true},
-        {'id': 'hcw3_q8', 'q': 'Is there a noticeable speech delay compared to peers?', 'clinical': true},
-      ],
-      4: [
-        {'id': 'hcw4_q1', 'q': 'Does the child respond when called from another room?', 'clinical': false},
-        {'id': 'hcw4_q2', 'q': 'Can the child follow 2 or 3-part directions?', 'clinical': false},
-        {'id': 'hcw4_q3', 'q': 'Does the child understand words for colors, shapes, and family members?', 'clinical': false},
-        {'id': 'hcw4_q4', 'q': 'Can the child answer Who, What, Where, and Why questions?', 'clinical': false},
-        {'id': 'hcw4_q5', 'q': 'Do people outside the family understand the child most of the time?', 'clinical': false},
-        {'id': 'hcw4_q6', 'q': 'Does the child turn the TV volume up excessively high?', 'clinical': true},
-        {'id': 'hcw4_q7', 'q': 'Does the child frequently say "Huh" or "What" when spoken to?', 'clinical': true},
-        {'id': 'hcw4_q8', 'q': 'Has the child had more than 3 ear infections in the past year?', 'clinical': true},
-      ],
-      5: [
-        {'id': 'hcw5_q1', 'q': 'Does the child frequently ask for instructions to be repeated?', 'clinical': false},
-        {'id': 'hcw5_q2', 'q': 'Is the child experiencing difficulty with reading, phonics, or academics?', 'clinical': false},
-        {'id': 'hcw5_q3', 'q': 'Does the child have unclear speech or articulation issues?', 'clinical': false},
-        {'id': 'hcw5_q4', 'q': 'Does the child seem inattentive, especially in noisy environments?', 'clinical': false},
-        {'id': 'hcw5_q5', 'q': 'Does the child struggle with jokes, idioms, or fast conversations?', 'clinical': false},
-        {'id': 'hcw5_q6', 'q': 'Does the child complain of ringing in their ears or ear pain?', 'clinical': true},
-        {'id': 'hcw5_q7', 'q': 'Does the child favor one ear over the other when listening?', 'clinical': true},
-        {'id': 'hcw5_q8', 'q': 'Does the child speak unusually loudly or softly?', 'clinical': true},
-      ],
-    };
-    _questions = allQuestions[bracket] ?? allQuestions[1]!;
+  Future<void> _loadQuestions() async {
+    setState(() => _isLoading = true);
+    try {
+      final fastApi = ref.read(fastApiServiceProvider);
+      final bracket = _computeAgeBracket();
+      final res = await fastApi.getQuestionnaire(role: 'hcw', bracketId: bracket);
+      if (mounted) {
+        setState(() {
+          final fetched = List<Map<String, dynamic>>.from(res['questions'] ?? []);
+          // Map backend keys (text, isClinical) to local keys (q, clinical) for ease
+          _questions = fetched.map((q) => {
+            'id': q['id'],
+            'q': q['text'],
+            'clinical': q['isClinical'],
+          }).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load: $e'), backgroundColor: HearTechColors.coralRed));
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
-  void _startScreening() {
+  Future<void> _startScreening() async {
     if (_nameCtrl.text.trim().isEmpty || _dob == null || _gender == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill in all required fields.')),
       );
       return;
     }
-    _loadQuestions();
-    setState(() => _step = 1);
+    await _loadQuestions();
+    if (_questions.isNotEmpty && mounted) {
+      setState(() => _step = 1);
+    }
   }
 
   void _answerQuestion(String answer) {
@@ -182,29 +152,41 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
 
   Future<void> _analyseResults() async {
     setState(() => _step = 3); // processing
-    await Future.delayed(const Duration(seconds: 2)); // simulate API
-    _calculateScore();
-    setState(() => _step = 4); // result
+    await _calculateScore();
+    if (mounted) setState(() => _step = 4); // result
   }
 
-  void _calculateScore() {
-    int points = 0;
-    for (final a in _answers) {
-      switch (a.answer) {
-        case 'no': points += 3; break;
-        case 'partial': points += 2; break;
-        case 'not_sure': points += 1; break;
-        case 'yes': points += 0; break;
+  Future<void> _calculateScore() async {
+    try {
+      final fastApi = ref.read(fastApiServiceProvider);
+      
+      // Map local answers format to what backend expects
+      final apiAnswers = _answers.map((a) {
+        final qMatched = _questions.firstWhere((q) => q['id'] == a.questionId, orElse: () => {'clinical': false});
+        return {
+          'questionId': a.questionId,
+          'answer': a.answer,
+          'isClinical': qMatched['clinical'],
+        };
+      }).toList();
+
+      final response = await fastApi.calculateRiskScore(
+        answers: apiAnswers,
+        ageBracket: _computeAgeBracket(),
+        conductorRole: 'hcw',
+      );
+      
+      if (mounted) {
+        setState(() {
+          _riskScore = (response['riskScore'] as num).toDouble();
+          _riskLevel = response['riskLevel'] as String;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scoring error: $e'), backgroundColor: HearTechColors.coralRed));
       }
     }
-    if (_premature) points += 3;
-    if (_nicu) points += 4;
-    if (_familyHistory) points += 3;
-    points += _earInfections;
-
-    final max = _questions.length * 3 + 10 + 3;
-    _riskScore = (points / max * 100).clamp(0, 100);
-    _riskLevel = _riskScore >= 67 ? 'high' : (_riskScore >= 34 ? 'medium' : 'low');
   }
 
   Future<void> _saveAnonymous() async {

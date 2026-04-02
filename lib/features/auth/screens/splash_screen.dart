@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
@@ -38,32 +39,43 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     Future.delayed(const Duration(milliseconds: 2500), _navigate);
   }
 
-  void _navigate() {
+  Future<void> _navigate() async {
     if (!mounted) return;
 
-    final firebaseUser = ref.read(currentFirebaseUserProvider);
+    final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
       context.go(Routes.roleSelect);
       return;
     }
 
-    // User is logged in — check their role and route accordingly
-    final userProfile = ref.read(userProfileProvider);
-    if (userProfile == null) {
-      // Profile not loaded yet — go to role select (they'll be redirected)
-      context.go(Routes.roleSelect);
-      return;
-    }
+    // User is logged in — directly fetch their role from Firestore instead of relying on Stream Provider
+    try {
+      final firestoreService = ref.read(firestoreServiceProvider);
+      final userProfile = await firestoreService.getUser(firebaseUser.uid);
+      
+      if (!mounted) return;
 
-    switch (userProfile.role) {
-      case 'hcw':
-        context.go(Routes.hcwDashboard);
-      case 'parent':
-        context.go(Routes.parentDashboard);
-      case 'teacher':
-        context.go(Routes.teacherDashboard);
-      default:
+      if (userProfile == null) {
+        // Profile not loaded or doesn't exist — go to role select
         context.go(Routes.roleSelect);
+        return;
+      }
+
+      switch (userProfile.role) {
+        case 'hcw':
+          context.go(Routes.hcwDashboard);
+          break;
+        case 'parent':
+          context.go(Routes.parentDashboard);
+          break;
+        case 'teacher':
+          context.go(Routes.teacherDashboard);
+          break;
+        default:
+          context.go(Routes.roleSelect);
+      }
+    } catch (e) {
+      if (mounted) context.go(Routes.roleSelect);
     }
   }
 

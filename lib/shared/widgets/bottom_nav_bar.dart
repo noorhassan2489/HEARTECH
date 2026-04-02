@@ -107,7 +107,7 @@ class HearTechBottomNavBar extends StatelessWidget {
         return const [
           _NavItem(Icons.home_outlined, Icons.home, 'Home'),
           _NavItem(Icons.school_outlined, Icons.school, 'My Class'),
-          _NavItem(Icons.notifications_outlined, Icons.notifications, 'Alerts'),
+          _NavItem(Icons.notifications_outlined, Icons.notifications, 'Notifications'),
           _NavItem(Icons.person_outline, Icons.person, 'Profile'),
         ];
       default:

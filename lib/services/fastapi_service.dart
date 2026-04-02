@@ -78,10 +78,20 @@ class FastApiService {
   Future<Map<String, dynamic>> generateReferral({
     required String childId,
     required String screeningId,
+    required int riskScore,
+    required List<Map<String, dynamic>> answers,
+    required String hcwDescription,
+    required Map<String, dynamic> hcwInfo,
+    required Map<String, dynamic> childInfo,
   }) async {
     final response = await _dio.post('/api/generate-referral', data: {
       'childId': childId,
       'screeningId': screeningId,
+      'riskScore': riskScore,
+      'answers': answers,
+      'hcwDescription': hcwDescription,
+      'hcwInfo': hcwInfo,
+      'childInfo': childInfo,
     });
     return response.data;
   }
@@ -89,12 +99,16 @@ class FastApiService {
   Future<Map<String, dynamic>> generateReferralPdf({
     required String childId,
     required String referralId,
-    required String letterText,
+    required String referralText,
+    required Map<String, dynamic> hcwInfo,
+    required Map<String, dynamic> childInfo,
   }) async {
     final response = await _dio.post('/api/generate-referral-pdf', data: {
       'childId': childId,
       'referralId': referralId,
-      'letterText': letterText,
+      'referralText': referralText,
+      'hcwInfo': hcwInfo,
+      'childInfo': childInfo,
     });
     return response.data;
   }
@@ -233,5 +247,29 @@ class FastApiService {
   Future<Map<String, dynamic>> getCloudinarySignature() async {
     final response = await _dio.post('/api/cloudinary-signature');
     return response.data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> sendNotification({
+    required String uid,
+    required String type,
+    required String title,
+    required String body,
+    String? priority,
+    String? navigationRoute,
+    String? relatedChildId,
+  }) async {
+    await _dio.post('/api/notifications/send', data: {
+      'uid': uid,
+      'type': type,
+      'title': title,
+      'body': body,
+      if (priority != null) 'priority': priority,
+      if (navigationRoute != null) 'navigationRoute': navigationRoute,
+      if (relatedChildId != null) 'relatedChildId': relatedChildId,
+    });
   }
 }

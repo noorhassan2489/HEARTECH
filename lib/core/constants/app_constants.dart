@@ -8,22 +8,23 @@ class AppConstants {
   // ── API ──────────────────────────────────────────────────────────────────
   /// FastAPI base URL (Google Cloud Run)
   /// Replace with your deployed Cloud Run URL
-  static const String apiBaseUrl = 'http://localhost:8000';
+  static const String apiBaseUrl = 'http://10.0.2.2:8000';
 
   // ── Cloudinary ───────────────────────────────────────────────────────────
   /// Replace with your Cloudinary cloud name from dashboard
-  static const String cloudinaryCloudName = 'YOUR_CLOUD_NAME';
-  static const String cloudinaryApiKey = 'YOUR_API_KEY';
+  static const String cloudinaryCloudName = 'dl7pmkzzu';
+  static const String cloudinaryApiKey = '4js_Q8vWsZj5Kdjw1dtRDv_IlJQ';
   static const String cloudinaryUploadPreset = 'heartech_unsigned';
 
   // ── OneSignal ────────────────────────────────────────────────────────────
   /// Replace with your OneSignal App ID
-  static const String oneSignalAppId = 'YOUR_ONESIGNAL_APP_ID';
+  static const String oneSignalAppId = '0200ac21-f1e9-417b-84de-38682079fb6b';
 
   // ── Handover Code ────────────────────────────────────────────────────────
   static const int handoverCodeLength = 6;
   static const Duration handoverCodeExpiry = Duration(hours: 24);
   static const int handoverCodeMaxAttempts = 5;
+
   /// Characters excluded from handover codes (avoid confusion: 0/O, 1/I)
   static const String handoverCodeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 

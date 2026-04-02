@@ -20,6 +20,7 @@ class HcwPatientsScreen extends ConsumerStatefulWidget {
 class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
   String _searchQuery = '';
   String _filterRisk = 'all'; // all, high, medium, low
+  bool _showRecentOnly = false;
 
   @override
   Widget build(BuildContext context) {
@@ -54,29 +55,49 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
                   onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: ['all', 'high', 'medium', 'low'].map((risk) {
-                    final selected = _filterRisk == risk;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(risk == 'all' ? 'All' : risk[0].toUpperCase() + risk.substring(1)),
-                        selected: selected,
-                        selectedColor: risk == 'high'
-                            ? HearTechColors.coralRed
-                            : risk == 'medium'
-                                ? HearTechColors.warmOrange
-                                : risk == 'low'
-                                    ? HearTechColors.green
-                                    : HearTechColors.deepTeal,
-                        labelStyle: TextStyle(
-                          color: selected ? HearTechColors.white : HearTechColors.textPrimary,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: const Text('Recent'),
+                          selected: _showRecentOnly,
+                          selectedColor: HearTechColors.deepTeal.withValues(alpha: 0.2),
+                          checkmarkColor: HearTechColors.deepTeal,
+                          labelStyle: TextStyle(
+                            color: _showRecentOnly ? HearTechColors.deepTeal : HearTechColors.textPrimary,
+                            fontWeight: _showRecentOnly ? FontWeight.w700 : FontWeight.w400,
+                          ),
+                          onSelected: (v) => setState(() => _showRecentOnly = v),
                         ),
-                        onSelected: (_) => setState(() => _filterRisk = risk),
                       ),
-                    );
-                  }).toList(),
+                      Container(width: 1, height: 24, color: HearTechColors.textSecondary.withValues(alpha: 0.3), margin: const EdgeInsets.only(right: 8)),
+                      ...['all', 'high', 'medium', 'low'].map((risk) {
+                        final selected = _filterRisk == risk;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FilterChip(
+                            label: Text(risk == 'all' ? 'All' : risk[0].toUpperCase() + risk.substring(1)),
+                            selected: selected,
+                            selectedColor: risk == 'high'
+                                ? HearTechColors.coralRed
+                                : risk == 'medium'
+                                    ? HearTechColors.warmOrange
+                                    : risk == 'low'
+                                        ? HearTechColors.green
+                                        : HearTechColors.deepTeal,
+                            labelStyle: TextStyle(
+                              color: selected ? HearTechColors.white : HearTechColors.textPrimary,
+                              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                            ),
+                            onSelected: (_) => setState(() => _filterRisk = risk),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -92,6 +113,10 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
                 var filtered = children.where((c) {
                   if (_filterRisk != 'all' && c.riskLevel != _filterRisk) return false;
                   if (_searchQuery.isNotEmpty && !c.name.toLowerCase().contains(_searchQuery)) return false;
+                  if (_showRecentOnly) {
+                    final isRecent = c.lastUpdatedAt.isAfter(DateTime.now().subtract(const Duration(days: 7)));
+                    if (!isRecent) return false;
+                  }
                   return true;
                 }).toList();
 

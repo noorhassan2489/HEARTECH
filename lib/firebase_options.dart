@@ -41,48 +41,51 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDuL91E4Afs9ZnqWdxtI38iqskdqyt2beM',
-    appId: '1:10963670501:web:ba6b7607531f27c314cb0c',
-    messagingSenderId: '10963670501',
-    projectId: 'heartech-7db7f',
-    authDomain: 'heartech-7db7f.firebaseapp.com',
-    storageBucket: 'heartech-7db7f.firebasestorage.app',
-    measurementId: 'G-NKGJB8MY8H',
+    apiKey: 'AIzaSyBKWzWvMIOpl6Bz_vr_bYgmX9OC3JAP3-M',
+    appId: '1:569550695748:web:c4aa4c19d41ce3d0c2bb11',
+    messagingSenderId: '569550695748',
+    projectId: 'heartech-fyp',
+    authDomain: 'heartech-fyp.firebaseapp.com',
+    storageBucket: 'heartech-fyp.firebasestorage.app',
+    measurementId: 'G-4682V09Y8N',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC1eVyKuu1iM3vqKWwL670NDpTrZAYGAY8',
-    appId: '1:10963670501:android:d7b5b0fe56a2ee8c14cb0c',
-    messagingSenderId: '10963670501',
-    projectId: 'heartech-7db7f',
-    storageBucket: 'heartech-7db7f.firebasestorage.app',
+    apiKey: 'AIzaSyC121uJ7jLQdTAbS4rXcF1mnFvh0w_f7Y0',
+    appId: '1:569550695748:android:8a8eff97dfbefa84c2bb11',
+    messagingSenderId: '569550695748',
+    projectId: 'heartech-fyp',
+    storageBucket: 'heartech-fyp.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAoA6keoJPQor8djquX0Y_EtYikzYOdE3U',
-    appId: '1:10963670501:ios:8b6b34555eebce9114cb0c',
-    messagingSenderId: '10963670501',
-    projectId: 'heartech-7db7f',
-    storageBucket: 'heartech-7db7f.firebasestorage.app',
+    apiKey: 'AIzaSyB5jeyUhrW-BVkJSWhoFaA3v8hPy2KQSHg',
+    appId: '1:569550695748:ios:ce0a21586a7566b6c2bb11',
+    messagingSenderId: '569550695748',
+    projectId: 'heartech-fyp',
+    storageBucket: 'heartech-fyp.firebasestorage.app',
+    iosClientId: '569550695748-39svpm1fg779pe55bjmoqcmkfordl1dv.apps.googleusercontent.com',
     iosBundleId: 'com.example.heartech',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyAoA6keoJPQor8djquX0Y_EtYikzYOdE3U',
-    appId: '1:10963670501:ios:8b6b34555eebce9114cb0c',
-    messagingSenderId: '10963670501',
-    projectId: 'heartech-7db7f',
-    storageBucket: 'heartech-7db7f.firebasestorage.app',
+    apiKey: 'AIzaSyB5jeyUhrW-BVkJSWhoFaA3v8hPy2KQSHg',
+    appId: '1:569550695748:ios:ce0a21586a7566b6c2bb11',
+    messagingSenderId: '569550695748',
+    projectId: 'heartech-fyp',
+    storageBucket: 'heartech-fyp.firebasestorage.app',
+    iosClientId: '569550695748-39svpm1fg779pe55bjmoqcmkfordl1dv.apps.googleusercontent.com',
     iosBundleId: 'com.example.heartech',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDuL91E4Afs9ZnqWdxtI38iqskdqyt2beM',
-    appId: '1:10963670501:web:3e4fcf3522c3ee9714cb0c',
-    messagingSenderId: '10963670501',
-    projectId: 'heartech-7db7f',
-    authDomain: 'heartech-7db7f.firebaseapp.com',
-    storageBucket: 'heartech-7db7f.firebasestorage.app',
-    measurementId: 'G-LZMXT7X2ZC',
+    apiKey: 'AIzaSyBKWzWvMIOpl6Bz_vr_bYgmX9OC3JAP3-M',
+    appId: '1:569550695748:web:7b91e08f6e930a19c2bb11',
+    messagingSenderId: '569550695748',
+    projectId: 'heartech-fyp',
+    authDomain: 'heartech-fyp.firebaseapp.com',
+    storageBucket: 'heartech-fyp.firebasestorage.app',
+    measurementId: 'G-9029SFPQ9S',
   );
+
 }

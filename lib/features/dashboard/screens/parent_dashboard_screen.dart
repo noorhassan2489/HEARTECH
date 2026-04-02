@@ -219,30 +219,53 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
                   const SizedBox(height: 24),
 
                   // ── Hearing Development Tips ───────────────
-                  Text('Hearing Development Tips', style: HearTechTextStyles.sectionHeader()),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 120,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _TipCard(
-                          title: 'Talk to your child',
-                          body: 'Narrate daily activities. This builds language and listening skills.',
-                        ),
-                        const SizedBox(width: 12),
-                        _TipCard(
-                          title: 'Read aloud daily',
-                          body: 'Read stories to your child every day, even before they can speak.',
-                        ),
-                        const SizedBox(width: 12),
-                        _TipCard(
-                          title: 'Reduce background noise',
-                          body: 'Turn off the TV during conversations to help your child focus on speech.',
-                        ),
-                      ],
-                    ),
-                  ).animate(delay: 400.ms).fadeIn(duration: 300.ms),
+                  Builder(
+                    builder: (context) {
+                      final childrenList = childrenAsync.asData?.value ?? [];
+                      int minBracket = 5;
+                      for (final c in childrenList) {
+                        if (c.ageBracket < minBracket) minBracket = c.ageBracket;
+                      }
+
+                      List<Widget> tips = [];
+                      if (minBracket == 1) { // 0-6 months
+                        tips = [
+                          const _TipCard(title: 'Startling to sounds', body: 'Infants should startle or widen their eyes at sudden, loud noises.'),
+                          const _TipCard(title: 'Soothing voice', body: 'Does your baby calm down or smile when they hear your familiar voice?'),
+                          const _TipCard(title: 'Finding the source', body: 'Watch to see if they move their eyes toward the direction of sounds.'),
+                        ];
+                      } else if (minBracket == 2) { // 7-12 months
+                        tips = [
+                          const _TipCard(title: 'Babbling', body: 'Encourage babbling by responding to their sounds as if having a conversation.'),
+                          const _TipCard(title: 'Name recognition', body: 'By 9 months, they should turn their head when you call their name.'),
+                          const _TipCard(title: 'Imitation', body: 'Try making simple sounds like "ba" and see if they try to copy you.'),
+                        ];
+                      } else { // 1+ years
+                        tips = [
+                          const _TipCard(title: 'Simple commands', body: 'Practice giving simple 1-step directions like "get your shoes" without pointing.'),
+                          const _TipCard(title: 'Expand vocabulary', body: 'Read aloud to them every single day. Narrate your daily activities.'),
+                          const _TipCard(title: 'Reduce background noise', body: 'Turn off the TV when speaking to help your child focus on speech sounds.'),
+                        ];
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Age-Appropriate Hearing Tips', style: HearTechTextStyles.sectionHeader()),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 125,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: tips.length,
+                              separatorBuilder: (_, i) => const SizedBox(width: 12),
+                              itemBuilder: (_, i) => tips[i],
+                            ),
+                          ).animate(delay: 400.ms).fadeIn(duration: 300.ms),
+                        ],
+                      );
+                    },
+                  ),
                   const SizedBox(height: 24),
                 ],
               ),
