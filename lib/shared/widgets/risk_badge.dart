@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 
-/// Risk badge pill — Green for Low, Orange for Medium, Red for High.
+/// Risk badge pill — solid colour background with white text.
+/// Green "Low Risk", Orange "Medium Risk", Red "High Risk".
 class RiskBadge extends StatelessWidget {
   final String riskLevel;
   final bool showScore;
@@ -19,35 +21,25 @@ class RiskBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = HearTechColors.riskColor(riskLevel);
-    final label = riskLevel[0].toUpperCase() + riskLevel.substring(1);
+    final capitalised =
+        riskLevel.isEmpty ? '' : riskLevel[0].toUpperCase() + riskLevel.substring(1);
 
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: large ? 16 : 12,
-        vertical: large ? 8 : 4,
+        vertical: large ? 8 : 5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color,
         borderRadius: HearTechDecorations.badgeBorderRadius,
-        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: large ? 10 : 8,
-            height: large ? 10 : 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            showScore && score != null ? '$label ($score)' : '$label Risk',
-            style: HearTechTextStyles.label(color: color).copyWith(
-              fontSize: large ? 14 : 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+      child: Text(
+        showScore && score != null ? '$capitalised ($score)' : '$capitalised Risk',
+        style: GoogleFonts.nunito(
+          fontSize: large ? 14 : 13,
+          fontWeight: FontWeight.w700,
+          color: HearTechColors.white,
+        ),
       ),
     );
   }

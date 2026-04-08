@@ -9,7 +9,7 @@ class FastApiService {
 
   FastApiService(this._authService) {
     _dio = Dio(BaseOptions(
-      baseUrl: AppConstants.apiBaseUrl,
+      baseUrl: AppConstants.fastApiBaseUrl,
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 30),
       headers: {'Content-Type': 'application/json'},

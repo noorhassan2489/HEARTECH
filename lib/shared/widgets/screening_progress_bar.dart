@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 
 /// Animated linear progress bar with teal fill for screening steps.
+/// Shows "Question X of Y" label above the bar.
 class ScreeningProgressBar extends StatelessWidget {
   final int current;
   final int total;
@@ -17,13 +18,16 @@ class ScreeningProgressBar extends StatelessWidget {
     final progress = total > 0 ? current / total : 0.0;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Question $current of $total',
-          style: HearTechTextStyles.caption(),
+          style: HearTechTextStyles.caption().copyWith(
+            fontWeight: FontWeight.w400,
+            fontSize: 12,
+          ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: TweenAnimationBuilder<double>(

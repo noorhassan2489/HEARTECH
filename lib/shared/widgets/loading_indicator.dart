@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 
 /// Pulsing teal ear icon loading indicator.
+/// Scale pulses from 1.0 → 1.15 → 1.0 continuously.
 class LoadingIndicator extends StatefulWidget {
   final String? message;
   final double size;
@@ -26,7 +27,7 @@ class _LoadingIndicatorState extends State<LoadingIndicator>
       vsync: this,
     )..repeat(reverse: true);
 
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
     _opacityAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(

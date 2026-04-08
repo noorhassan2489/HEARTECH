@@ -6,9 +6,8 @@ class AppConstants {
   AppConstants._();
 
   // ── API ──────────────────────────────────────────────────────────────────
-  /// FastAPI base URL (Google Cloud Run)
-  /// Replace with your deployed Cloud Run URL
-  static const String apiBaseUrl = 'http://10.0.2.2:8000';
+  /// FastAPI base URL (Google Cloud Run or localhost for dev)
+  static const String fastApiBaseUrl = 'http://10.0.2.2:8000';
 
   // ── Cloudinary ───────────────────────────────────────────────────────────
   /// Replace with your Cloudinary cloud name from dashboard
@@ -19,6 +18,10 @@ class AppConstants {
   // ── OneSignal ────────────────────────────────────────────────────────────
   /// Replace with your OneSignal App ID
   static const String oneSignalAppId = '0200ac21-f1e9-417b-84de-38682079fb6b';
+
+  // ── Gemini ───────────────────────────────────────────────────────────────
+  /// Model string for Google Gemini API
+  static const String geminiModel = 'gemini-2.5-flash';
 
   // ── Handover Code ────────────────────────────────────────────────────────
   static const int handoverCodeLength = 6;

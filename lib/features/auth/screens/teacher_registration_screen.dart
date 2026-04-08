@@ -22,6 +22,7 @@ class TeacherRegistrationScreen extends ConsumerStatefulWidget {
 class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationScreen> {
   int _currentStep = 0;
   bool _isLoading = false;
+  bool _isUploading = false;
 
   // Step 1 — Auth
   final _emailController = TextEditingController();
@@ -115,10 +116,18 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
     if (picked != null) {
-      setState(() => _photoFile = File(picked.path));
+      setState(() {
+        _photoFile = File(picked.path);
+        _isUploading = true;
+      });
       final cloudinary = ref.read(cloudinaryServiceProvider);
       final url = await cloudinary.uploadImage(_photoFile!, folder: 'heartech/profiles');
-      if (url != null) setState(() => _photoUrl = url);
+      if (mounted) {
+        setState(() {
+          _photoUrl = url;
+          _isUploading = false;
+        });
+      }
     }
   }
 
@@ -147,6 +156,10 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
       );
 
       await firestoreService.setUser(user);
+
+      // Register OneSignal
+      await authService.registerOneSignal(uid, 'teacher');
+
       if (mounted) context.go(Routes.teacherDashboard);
     } catch (e) {
       if (mounted) {
@@ -160,7 +173,8 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
 
   String _getAuthError(String error) {
     if (error.contains('email-already-in-use')) return 'Email already registered.';
-    if (error.contains('weak-password')) return 'Password is too weak.';
+    if (error.contains('weak-password')) return 'Password is too weak (min 6 chars).';
+    if (error.contains('invalid-email')) return 'Invalid email address.';
     return 'Registration failed.';
   }
 
@@ -182,6 +196,23 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: StepIndicator(totalSteps: 5, currentStep: _currentStep),
+            ),
+            // Animated progress bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: (_currentStep + 1) / 5),
+                  duration: const Duration(milliseconds: 300),
+                  builder: (context, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 4,
+                    backgroundColor: HearTechColors.paleTeal,
+                    valueColor: const AlwaysStoppedAnimation<Color>(HearTechColors.deepTeal),
+                  ),
+                ),
+              ),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -245,11 +276,27 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
         const SizedBox(height: 32),
         HearTechInputField(controller: _nameController, label: 'Full Name', prefixIcon: Icons.person_outline,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          initialValue: _gender, decoration: const InputDecoration(labelText: 'Gender', prefixIcon: Icon(Icons.wc)),
-          items: ['Male', 'Female', 'Other'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-          onChanged: (v) => setState(() => _gender = v)),
+        const SizedBox(height: 20),
+        // Gender chips
+        Text('Gender', style: HearTechTextStyles.subtitle()),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: ['Male', 'Female', 'Prefer not to say'].map((g) {
+            final selected = _gender == g;
+            return ChoiceChip(
+              label: Text(g),
+              selected: selected,
+              selectedColor: HearTechColors.deepTeal,
+              backgroundColor: HearTechColors.paleTeal,
+              labelStyle: TextStyle(
+                color: selected ? HearTechColors.white : HearTechColors.textPrimary,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              ),
+              onSelected: (val) => setState(() => _gender = val ? g : null),
+            );
+          }).toList(),
+        ),
         const SizedBox(height: 24),
         HearTechButton(label: 'Continue', onPressed: _nextStep),
       ],
@@ -266,7 +313,7 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
         const SizedBox(height: 32),
         HearTechInputField(controller: _schoolController, label: 'School Name', prefixIcon: Icons.school_outlined,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         Text('Grade Levels Taught', style: HearTechTextStyles.subtitle()),
         const SizedBox(height: 8),
         Wrap(
@@ -277,6 +324,8 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
               label: Text(grade),
               selected: selected,
               selectedColor: HearTechColors.deepTeal,
+              backgroundColor: HearTechColors.paleTeal,
+              checkmarkColor: HearTechColors.white,
               labelStyle: TextStyle(
                 color: selected ? HearTechColors.white : HearTechColors.textPrimary,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
@@ -311,12 +360,26 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
         const SizedBox(height: 32),
         Center(
           child: GestureDetector(
-            onTap: _pickPhoto,
-            child: CircleAvatar(radius: 60, backgroundColor: HearTechColors.paleTeal,
-              backgroundImage: _photoFile != null ? FileImage(_photoFile!) : null,
-              child: _photoFile == null ? const Icon(Icons.camera_alt_outlined, size: 32, color: HearTechColors.deepTeal) : null),
+            onTap: _isUploading ? null : _pickPhoto,
+            child: Stack(children: [
+              CircleAvatar(radius: 60, backgroundColor: HearTechColors.paleTeal,
+                backgroundImage: _photoFile != null ? FileImage(_photoFile!) : null,
+                child: _photoFile == null ? const Icon(Icons.camera_alt_outlined, size: 32, color: HearTechColors.deepTeal) : null),
+              if (_isUploading)
+                const Positioned.fill(child: CircularProgressIndicator(
+                  strokeWidth: 3, valueColor: AlwaysStoppedAnimation(HearTechColors.deepTeal),
+                )),
+            ]),
           ),
         ),
+        if (_photoUrl != null) ...[
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.check_circle, color: HearTechColors.green, size: 16),
+            const SizedBox(width: 4),
+            Text('Photo uploaded', style: HearTechTextStyles.caption(color: HearTechColors.green)),
+          ]),
+        ],
         const SizedBox(height: 16),
         Center(child: TextButton(onPressed: _pickPhoto, child: Text('Choose Photo', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)))),
         const SizedBox(height: 32),
@@ -333,12 +396,16 @@ class _TeacherRegistrationScreenState extends ConsumerState<TeacherRegistrationS
       children: [
         Text('Review & Submit', style: HearTechTextStyles.screenTitle()),
         const SizedBox(height: 8),
-        Text('Step 5 of 5', style: HearTechTextStyles.caption()),
+        Text('Step 5 of 5 — Confirm your details', style: HearTechTextStyles.caption()),
         const SizedBox(height: 24),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
           decoration: HearTechDecorations.cardDecoration,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (_photoFile != null) ...[
+              Center(child: CircleAvatar(radius: 40, backgroundImage: FileImage(_photoFile!))),
+              const SizedBox(height: 16),
+            ],
             _r('Name', _nameController.text),
             _r('Gender', _gender ?? '-'),
             _r('School', _schoolController.text.isNotEmpty ? _schoolController.text : '-'),

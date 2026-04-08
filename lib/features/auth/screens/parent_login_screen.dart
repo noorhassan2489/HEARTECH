@@ -46,7 +46,20 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
         if (user != null) {
           final profile = await firestoreService.getUser(user.uid);
           if (profile != null && mounted) {
-            context.go(Routes.parentDashboard);
+            if (profile.role != 'parent') {
+              await authService.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
+                    backgroundColor: HearTechColors.coralRed,
+                  ),
+                );
+              }
+              return;
+            }
+            await authService.registerOneSignal(user.uid, profile.role);
+            if (mounted) context.go(Routes.parentDashboard);
           } else if (mounted) {
             context.go(Routes.parentRegister);
           }
@@ -75,7 +88,20 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
         final firestoreService = ref.read(firestoreServiceProvider);
         final profile = await firestoreService.getUser(result.user!.uid);
         if (profile != null && mounted) {
-          context.go(Routes.parentDashboard);
+          if (profile.role != 'parent') {
+            await authService.signOut();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
+                  backgroundColor: HearTechColors.coralRed,
+                ),
+              );
+            }
+            return;
+          }
+          await authService.registerOneSignal(result.user!.uid, profile.role);
+          if (mounted) context.go(Routes.parentDashboard);
         } else if (mounted) {
           context.go(Routes.parentRegister);
         }

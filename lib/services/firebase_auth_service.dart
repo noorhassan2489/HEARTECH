@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:heartech/services/notification_service.dart';
 
 /// Firebase Authentication service — handles login, register, sign out.
 class FirebaseAuthService {
@@ -17,19 +18,21 @@ class FirebaseAuthService {
 
   /// Sign in with email and password.
   Future<UserCredential> signInWithEmail(String email, String password) async {
-    return await _auth.signInWithEmailAndPassword(
+    final credential = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
+    return credential;
   }
 
   /// Create account with email and password.
   Future<UserCredential> createAccountWithEmail(
       String email, String password) async {
-    return await _auth.createUserWithEmailAndPassword(
+    final credential = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
+    return credential;
   }
 
   /// Sign in with Google.
@@ -43,7 +46,8 @@ class FirebaseAuthService {
       idToken: googleAuth.idToken,
     );
 
-    return await _auth.signInWithCredential(credential);
+    final result = await _auth.signInWithCredential(credential);
+    return result;
   }
 
   /// Send password reset email.
@@ -51,8 +55,22 @@ class FirebaseAuthService {
     await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
-  /// Sign out from Firebase and Google.
+  /// Register OneSignal after sign in (call after Firestore profile is found/created).
+  Future<void> registerOneSignal(String uid, String role) async {
+    try {
+      await NotificationService.onLogin(uid, role);
+    } catch (_) {
+      // OneSignal registration is non-critical — don't block auth flow
+    }
+  }
+
+  /// Sign out from Firebase, Google, and OneSignal.
   Future<void> signOut() async {
+    try {
+      await NotificationService.onLogout();
+    } catch (_) {
+      // Non-critical
+    }
     await _googleSignIn.signOut();
     await _auth.signOut();
   }

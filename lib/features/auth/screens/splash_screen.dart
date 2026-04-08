@@ -6,7 +6,7 @@ import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 
-/// Splash screen — HearTech ear logo, tagline, auto-routes after 2s.
+/// Splash screen — HearTech ear logo on Pale Teal, auto-routes after 2s.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -35,8 +35,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     );
     _controller.forward();
 
-    // Auto-route after 2.5 seconds
-    Future.delayed(const Duration(milliseconds: 2500), _navigate);
+    // Auto-route after 2 seconds
+    Future.delayed(const Duration(seconds: 2), _navigate);
   }
 
   Future<void> _navigate() async {
@@ -44,22 +44,27 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
-      context.go(Routes.roleSelect);
+      if (mounted) context.go(Routes.roleSelect);
       return;
     }
 
-    // User is logged in — directly fetch their role from Firestore instead of relying on Stream Provider
+    // User is logged in — fetch role from Firestore
     try {
       final firestoreService = ref.read(firestoreServiceProvider);
       final userProfile = await firestoreService.getUser(firebaseUser.uid);
-      
+
       if (!mounted) return;
 
       if (userProfile == null) {
-        // Profile not loaded or doesn't exist — go to role select
         context.go(Routes.roleSelect);
         return;
       }
+
+      // Register OneSignal on app launch with existing session
+      final authService = ref.read(firebaseAuthServiceProvider);
+      await authService.registerOneSignal(firebaseUser.uid, userProfile.role);
+
+      if (!mounted) return;
 
       switch (userProfile.role) {
         case 'hcw':
@@ -100,7 +105,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Ear logo icon
+                    // Ear logo icon in white circle
                     Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
@@ -121,20 +126,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                       ),
                     ),
                     const SizedBox(height: 24),
-                    // App name
+                    // App name — Nunito ExtraBold 32sp Deep Teal
                     Text(
                       'HearTech',
-                      style: HearTechTextStyles.bigNumber(
+                      style: HearTechTextStyles.display(
                         color: HearTechColors.deepTeal,
-                      ).copyWith(fontSize: 32),
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    // Tagline
+                    // Tagline — Text Secondary 14sp
                     Text(
                       'Early Hearing, Better Futures',
-                      style: HearTechTextStyles.body(
+                      style: HearTechTextStyles.caption(
                         color: HearTechColors.textSecondary,
-                      ),
+                      ).copyWith(fontSize: 14),
                     ),
                   ],
                 ),

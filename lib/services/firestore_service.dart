@@ -7,6 +7,7 @@ import 'package:heartech/shared/models/referral_model.dart';
 import 'package:heartech/shared/models/notification_model.dart';
 import 'package:heartech/shared/models/invite_model.dart';
 import 'package:heartech/shared/models/speech_log_model.dart';
+import 'package:heartech/shared/models/note_model.dart';
 import 'package:heartech/shared/models/teacher_observation_model.dart';
 
 /// Central Firestore service — all database reads and writes go through here.
@@ -261,6 +262,40 @@ class FirestoreService {
         .map((snap) => snap.docs
             .map((d) => SpeechLogModel.fromJson(d.data()))
             .toList());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NOTES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Add a clinical note.
+  Future<void> addNote(String childId, NoteModel note) async {
+    await _db
+        .collection(FirestorePaths.notes(childId))
+        .doc(note.noteId)
+        .set(note.toJson());
+  }
+
+  /// Stream notes for a child ordered by createdAt desc.
+  Stream<List<NoteModel>> streamNotes(String childId) {
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => NoteModel.fromJson(d.data()))
+            .toList());
+  }
+
+  /// Update note visibility flags.
+  Future<void> updateNoteVisibility(
+      String childId, String noteId, {bool? isPublic, bool? isTeacherVisible}) async {
+    final data = <String, dynamic>{};
+    if (isPublic != null) data['isPublic'] = isPublic;
+    if (isTeacherVisible != null) data['isTeacherVisible'] = isTeacherVisible;
+    if (data.isNotEmpty) {
+      await _db.collection(FirestorePaths.notes(childId)).doc(noteId).update(data);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

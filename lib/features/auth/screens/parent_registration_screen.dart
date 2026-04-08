@@ -22,6 +22,7 @@ class ParentRegistrationScreen extends ConsumerStatefulWidget {
 class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScreen> {
   int _currentStep = 0;
   bool _isLoading = false;
+  bool _isUploading = false;
 
   // Step 1 — Auth
   final _emailController = TextEditingController();
@@ -38,7 +39,11 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
   // Step 3 — Location
   final _cityController = TextEditingController();
   String? _country;
-  final List<String> _countries = ['Pakistan', 'India', 'Bangladesh', 'Afghanistan', 'Other'];
+  final List<String> _countries = [
+    'Pakistan', 'India', 'Bangladesh', 'Afghanistan', 'Sri Lanka',
+    'Nepal', 'United Arab Emirates', 'Saudi Arabia', 'United Kingdom',
+    'United States', 'Canada', 'Australia', 'Other',
+  ];
 
   // Step 4 — Photo
   File? _photoFile;
@@ -113,6 +118,15 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
       initialDate: DateTime(1990, 1, 1),
       firstDate: DateTime(1940),
       lastDate: DateTime.now(),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(
+            primary: HearTechColors.deepTeal,
+            onSurface: HearTechColors.textPrimary,
+          ),
+        ),
+        child: child!,
+      ),
     );
     if (picked != null) setState(() => _dob = picked);
   }
@@ -121,10 +135,23 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
     if (picked != null) {
-      setState(() => _photoFile = File(picked.path));
+      setState(() {
+        _photoFile = File(picked.path);
+        _isUploading = true;
+      });
       final cloudinary = ref.read(cloudinaryServiceProvider);
       final url = await cloudinary.uploadImage(_photoFile!, folder: 'heartech/profiles');
-      if (url != null) setState(() => _photoUrl = url);
+      if (mounted) {
+        setState(() {
+          _photoUrl = url;
+          _isUploading = false;
+        });
+        if (url != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo uploaded!'), backgroundColor: HearTechColors.green),
+          );
+        }
+      }
     }
   }
 
@@ -153,6 +180,10 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
       );
 
       await firestoreService.setUser(user);
+
+      // Register OneSignal
+      await authService.registerOneSignal(uid, 'parent');
+
       if (mounted) context.go(Routes.parentDashboard);
     } catch (e) {
       if (mounted) {
@@ -165,9 +196,10 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
   }
 
   String _getAuthError(String error) {
-    if (error.contains('email-already-in-use')) return 'Email already registered.';
-    if (error.contains('weak-password')) return 'Password is too weak.';
-    return 'Registration failed.';
+    if (error.contains('email-already-in-use')) return 'Email already registered. Try logging in.';
+    if (error.contains('weak-password')) return 'Password is too weak (min 6 chars).';
+    if (error.contains('invalid-email')) return 'Invalid email address.';
+    return 'Registration failed. Please try again.';
   }
 
   @override
@@ -188,6 +220,23 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: StepIndicator(totalSteps: 5, currentStep: _currentStep),
+            ),
+            // Animated progress bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: (_currentStep + 1) / 5),
+                  duration: const Duration(milliseconds: 300),
+                  builder: (context, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 4,
+                    backgroundColor: HearTechColors.paleTeal,
+                    valueColor: const AlwaysStoppedAnimation<Color>(HearTechColors.deepTeal),
+                  ),
+                ),
+              ),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -244,18 +293,35 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
     return Form(key: _formKeys[1], child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Personal Information', style: HearTechTextStyles.screenTitle()),
+        Text('About You', style: HearTechTextStyles.screenTitle()),
         const SizedBox(height: 8),
         Text('Step 2 of 5', style: HearTechTextStyles.caption()),
         const SizedBox(height: 32),
         HearTechInputField(controller: _nameController, label: 'Full Name', prefixIcon: Icons.person_outline,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          initialValue: _gender, decoration: const InputDecoration(labelText: 'Gender', prefixIcon: Icon(Icons.wc)),
-          items: ['Male', 'Female', 'Other'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-          onChanged: (v) => setState(() => _gender = v)),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
+        // Gender chips
+        Text('Gender', style: HearTechTextStyles.subtitle()),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: ['Male', 'Female', 'Prefer not to say'].map((g) {
+            final selected = _gender == g;
+            return ChoiceChip(
+              label: Text(g),
+              selected: selected,
+              selectedColor: HearTechColors.deepTeal,
+              backgroundColor: HearTechColors.paleTeal,
+              labelStyle: TextStyle(
+                color: selected ? HearTechColors.white : HearTechColors.textPrimary,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              ),
+              onSelected: (val) => setState(() => _gender = val ? g : null),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 20),
+        // Date of Birth
         GestureDetector(
           onTap: _pickDob,
           child: AbsorbPointer(
@@ -287,9 +353,11 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
         HearTechInputField(controller: _cityController, label: 'City', prefixIcon: Icons.location_city_outlined),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          initialValue: _country, decoration: const InputDecoration(labelText: 'Country', prefixIcon: Icon(Icons.public)),
+          initialValue: _country,
+          decoration: const InputDecoration(labelText: 'Country', prefixIcon: Icon(Icons.public)),
           items: _countries.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-          onChanged: (v) => setState(() => _country = v)),
+          onChanged: (v) => setState(() => _country = v),
+        ),
         const SizedBox(height: 24),
         HearTechButton(label: 'Continue', onPressed: _nextStep),
       ],
@@ -306,18 +374,48 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
         const SizedBox(height: 32),
         Center(
           child: GestureDetector(
-            onTap: _pickPhoto,
-            child: CircleAvatar(radius: 60, backgroundColor: HearTechColors.paleTeal,
-              backgroundImage: _photoFile != null ? FileImage(_photoFile!) : null,
-              child: _photoFile == null ? const Icon(Icons.camera_alt_outlined, size: 32, color: HearTechColors.deepTeal) : null),
+            onTap: _isUploading ? null : _pickPhoto,
+            child: Stack(
+              children: [
+                CircleAvatar(radius: 60, backgroundColor: HearTechColors.paleTeal,
+                  backgroundImage: _photoFile != null ? FileImage(_photoFile!) : null,
+                  child: _photoFile == null
+                      ? const Icon(Icons.camera_alt_outlined, size: 32, color: HearTechColors.deepTeal)
+                      : null),
+                if (_isUploading)
+                  const Positioned.fill(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3, valueColor: AlwaysStoppedAnimation(HearTechColors.deepTeal),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
+        if (_photoUrl != null) ...[
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.check_circle, color: HearTechColors.green, size: 16),
+            const SizedBox(width: 4),
+            Text('Photo uploaded', style: HearTechTextStyles.caption(color: HearTechColors.green)),
+          ]),
+        ],
         const SizedBox(height: 16),
-        Center(child: TextButton(onPressed: _pickPhoto, child: Text('Choose Photo', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)))),
+        Center(child: TextButton(
+          onPressed: _isUploading ? null : _pickPhoto,
+          child: Text('Choose Photo', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)),
+        )),
         const SizedBox(height: 32),
         HearTechButton(label: 'Continue', onPressed: _nextStep),
         const SizedBox(height: 12),
-        Center(child: TextButton(onPressed: _nextStep, child: Text('Skip for now', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)))),
+        Center(child: TextButton(
+          onPressed: () {
+            _photoFile = null;
+            _photoUrl = null;
+            _nextStep();
+          },
+          child: Text('Skip for now', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
+        )),
       ],
     ));
   }
@@ -328,12 +426,16 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
       children: [
         Text('Review & Create', style: HearTechTextStyles.screenTitle()),
         const SizedBox(height: 8),
-        Text('Step 5 of 5', style: HearTechTextStyles.caption()),
+        Text('Step 5 of 5 — Confirm your details', style: HearTechTextStyles.caption()),
         const SizedBox(height: 24),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
           decoration: HearTechDecorations.cardDecoration,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (_photoFile != null) ...[
+              Center(child: CircleAvatar(radius: 40, backgroundImage: FileImage(_photoFile!))),
+              const SizedBox(height: 16),
+            ],
             _r('Name', _nameController.text),
             _r('Gender', _gender ?? '-'),
             _r('DOB', _dob != null ? '${_dob!.day}/${_dob!.month}/${_dob!.year}' : '-'),

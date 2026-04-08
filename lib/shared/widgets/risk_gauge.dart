@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/shared/widgets/risk_badge.dart';
 
-/// Circular animated risk gauge with score number inside.
+/// Circular animated risk gauge with score number inside and RiskBadge below.
 class RiskGauge extends StatefulWidget {
   final int score; // 0-100
   final String riskLevel;
@@ -72,46 +73,52 @@ class _RiskGaugeState extends State<RiskGauge>
   Widget build(BuildContext context) {
     final color = HearTechColors.riskColor(widget.riskLevel);
 
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        final currentScore = _animation.value;
-        return SizedBox(
-          width: widget.size,
-          height: widget.size,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Background arc
-              CustomPaint(
-                size: Size(widget.size, widget.size),
-                painter: _GaugePainter(
-                  progress: currentScore / 100,
-                  color: color,
-                  backgroundColor: HearTechColors.paleTeal,
-                  strokeWidth: widget.size * 0.08,
-                ),
-              ),
-              // Score number
-              Column(
-                mainAxisSize: MainAxisSize.min,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedBuilder(
+          animation: _animation,
+          builder: (context, child) {
+            final currentScore = _animation.value;
+            return SizedBox(
+              width: widget.size,
+              height: widget.size,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  Text(
-                    currentScore.round().toString(),
-                    style: HearTechTextStyles.bigNumber(color: color).copyWith(
-                      fontSize: widget.size * 0.25,
+                  // Background + progress arc
+                  CustomPaint(
+                    size: Size(widget.size, widget.size),
+                    painter: _GaugePainter(
+                      progress: currentScore / 100,
+                      color: color,
+                      backgroundColor: HearTechColors.paleTeal,
+                      strokeWidth: widget.size * 0.08,
                     ),
                   ),
-                  Text(
-                    'out of 100',
-                    style: HearTechTextStyles.caption(),
+                  // Score number in center
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        currentScore.round().toString(),
+                        style: HearTechTextStyles.bigNumber(color: color),
+                      ),
+                      Text(
+                        'out of 100',
+                        style: HearTechTextStyles.caption(),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        );
-      },
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        // Risk badge below the circle
+        RiskBadge(riskLevel: widget.riskLevel),
+      ],
     );
   }
 }
@@ -152,19 +159,21 @@ class _GaugePainter extends CustomPainter {
     );
 
     // Progress arc
-    final progressPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
+    if (progress > 0) {
+      final progressPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
 
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      startAngle,
-      sweepAngle * progress,
-      false,
-      progressPaint,
-    );
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle * progress,
+        false,
+        progressPaint,
+      );
+    }
   }
 
   @override

@@ -97,10 +97,10 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
         setState(() {
           final fetched = List<Map<String, dynamic>>.from(res['questions'] ?? []);
           // Map backend keys (text, isClinical) to local keys (q, clinical) for ease
-          _questions = fetched.map((q) => {
+          _questions = fetched.map((q) => <String, dynamic>{
             'id': q['id'],
             'q': q['text'],
-            'clinical': q['isClinical'],
+            'clinical': q['isClinical'] ?? false,
           }).toList();
           _isLoading = false;
         });
@@ -839,11 +839,13 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
                 HearTechButton(
                   label: 'Generate Referral',
                   onPressed: () {
-                    // Navigate to referral generation when built
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Referral generation coming soon.'),
-                          backgroundColor: HearTechColors.deepTeal),
-                    );
+                    if (_createdChildId != null) {
+                      context.go(
+                        Routes.referralGeneration
+                            .replaceFirst(':childId', _createdChildId!)
+                            .replaceFirst(':screeningId', 'latest'),
+                      );
+                    }
                   },
                   backgroundColor: HearTechColors.coralRed,
                 ),

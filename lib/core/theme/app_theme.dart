@@ -69,6 +69,13 @@ class HearTechTextStyles {
     );
   }
 
+  // Display — Nunito ExtraBold 32sp (splash, hero areas)
+  static TextStyle display({Color? color}) => _nunito(
+        fontSize: 32,
+        fontWeight: FontWeight.w800,
+        color: color ?? HearTechColors.textPrimary,
+      );
+
   // Screen titles — Nunito Bold 24sp
   static TextStyle screenTitle({Color? color}) => _nunito(
         fontSize: 24,
@@ -123,7 +130,7 @@ class HearTechTextStyles {
   static TextStyle appBarTitle({Color? color}) => _nunito(
         fontSize: 20,
         fontWeight: FontWeight.w700,
-        color: color ?? HearTechColors.white,
+        color: color ?? HearTechColors.deepTeal,
       );
 
   // Small bold labels
@@ -160,7 +167,7 @@ class HearTechDecorations {
   // Shadows
   static List<BoxShadow> cardShadow = [
     BoxShadow(
-      color: HearTechColors.deepTeal.withValues(alpha: 0.06),
+      color: HearTechColors.deepTeal.withValues(alpha: 0.08),
       blurRadius: 16,
       offset: const Offset(0, 4),
     ),
@@ -200,6 +207,7 @@ class HearTechTheme {
       brightness: Brightness.light,
       scaffoldBackgroundColor: HearTechColors.background,
       primaryColor: HearTechColors.deepTeal,
+      fontFamily: GoogleFonts.nunito().fontFamily,
       colorScheme: const ColorScheme.light(
         primary: HearTechColors.deepTeal,
         secondary: HearTechColors.mediumTeal,
@@ -211,27 +219,29 @@ class HearTechTheme {
         onError: HearTechColors.white,
       ),
 
-      // App Bar
+      // App Bar — white background, Teal title and icons
       appBarTheme: AppBarTheme(
-        backgroundColor: HearTechColors.deepTeal,
-        foregroundColor: HearTechColors.white,
+        backgroundColor: HearTechColors.white,
+        foregroundColor: HearTechColors.deepTeal,
         elevation: 0,
+        scrolledUnderElevation: 0.5,
         centerTitle: false,
         titleTextStyle: HearTechTextStyles.appBarTitle(),
-        iconTheme: const IconThemeData(color: HearTechColors.white),
+        iconTheme: const IconThemeData(color: HearTechColors.deepTeal),
       ),
 
-      // Cards
+      // Cards — radius 20, white, elevation 4
       cardTheme: CardThemeData(
         color: HearTechColors.white,
-        elevation: 0,
+        elevation: 4,
+        shadowColor: HearTechColors.deepTeal.withValues(alpha: 0.08),
         shape: RoundedRectangleBorder(
           borderRadius: HearTechDecorations.cardBorderRadius,
         ),
         margin: EdgeInsets.zero,
       ),
 
-      // Primary button
+      // Primary button — full width, height 56, radius 16, Deep Teal fill
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: HearTechColors.deepTeal,
@@ -245,7 +255,7 @@ class HearTechTheme {
         ),
       ),
 
-      // Secondary / outlined button
+      // Secondary / outlined button — same sizing, Teal border and text
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: HearTechColors.deepTeal,
@@ -267,7 +277,7 @@ class HearTechTheme {
         ),
       ),
 
-      // Input decoration
+      // Input decoration — radius 14, Pale Teal fill, Teal focus border
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: HearTechColors.paleTeal,

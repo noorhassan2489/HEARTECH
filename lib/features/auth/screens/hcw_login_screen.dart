@@ -48,7 +48,21 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
         if (user != null) {
           final profile = await firestoreService.getUser(user.uid);
           if (profile != null && mounted) {
-            context.go(Routes.hcwDashboard);
+            // Validate role matches this portal
+            if (profile.role != 'hcw') {
+              await authService.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
+                    backgroundColor: HearTechColors.coralRed,
+                  ),
+                );
+              }
+              return;
+            }
+            await authService.registerOneSignal(user.uid, profile.role);
+            if (mounted) context.go(Routes.hcwDashboard);
           } else if (mounted) {
             // No profile — go to registration
             context.go(Routes.hcwRegister);
@@ -78,7 +92,20 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
         final firestoreService = ref.read(firestoreServiceProvider);
         final profile = await firestoreService.getUser(result.user!.uid);
         if (profile != null && mounted) {
-          context.go(Routes.hcwDashboard);
+          if (profile.role != 'hcw') {
+            await authService.signOut();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
+                  backgroundColor: HearTechColors.coralRed,
+                ),
+              );
+            }
+            return;
+          }
+          await authService.registerOneSignal(result.user!.uid, profile.role);
+          if (mounted) context.go(Routes.hcwDashboard);
         } else if (mounted) {
           context.go(Routes.hcwRegister);
         }

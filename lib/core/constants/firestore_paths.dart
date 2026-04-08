@@ -35,6 +35,9 @@ class FirestorePaths {
   static String speechLog(String childId, String logId) =>
       '$children/$childId/speechLogs/$logId';
 
+  static String notes(String childId) => '$children/$childId/notes';
+  static String note(String childId, String noteId) =>
+      '$children/$childId/notes/$noteId';
   // ── Notifications ────────────────────────────────────────────────────────
   static String notifications(String uid) => 'notifications/$uid/items';
   static String notification(String uid, String notifId) =>

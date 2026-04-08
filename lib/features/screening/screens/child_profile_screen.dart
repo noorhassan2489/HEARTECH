@@ -16,6 +16,8 @@ import 'package:heartech/shared/widgets/risk_badge.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 import 'package:heartech/shared/widgets/disclaimer_footer.dart';
+import 'package:heartech/shared/models/note_model.dart';
+import 'package:heartech/core/constants/firestore_paths.dart';
 import 'package:intl/intl.dart';
 
 /// Child Profile Screen — tabbed interface per role.
@@ -654,18 +656,19 @@ class _ReferralsTab extends ConsumerWidget {
 // NOTES TAB (HCW — with visibility toggles)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _NotesTab extends StatefulWidget {
+class _NotesTab extends ConsumerStatefulWidget {
   final String childId;
   const _NotesTab({required this.childId});
 
   @override
-  State<_NotesTab> createState() => _NotesTabState();
+  ConsumerState<_NotesTab> createState() => _NotesTabState();
 }
 
-class _NotesTabState extends State<_NotesTab> {
+class _NotesTabState extends ConsumerState<_NotesTab> {
   final _noteCtrl = TextEditingController();
   bool _isPublic = false;
   bool _isTeacherVisible = false;
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -673,8 +676,81 @@ class _NotesTabState extends State<_NotesTab> {
     super.dispose();
   }
 
+  Future<void> _saveNote() async {
+    if (_noteCtrl.text.trim().isEmpty) return;
+    setState(() => _isSaving = true);
+    try {
+      final fs = ref.read(firestoreServiceProvider);
+      final user = ref.read(userProfileProvider);
+      final noteId = fs.generateId(FirestorePaths.notes(widget.childId));
+
+      final note = NoteModel(
+        noteId: noteId,
+        authorUid: user?.uid ?? '',
+        authorName: user?.name ?? 'Unknown',
+        authorRole: user?.role ?? 'hcw',
+        text: _noteCtrl.text.trim(),
+        isPublic: _isPublic,
+        isTeacherVisible: _isTeacherVisible,
+        createdAt: DateTime.now(),
+      );
+      await fs.addNote(widget.childId, note);
+
+      // Fire PAR-02 notification if isPublic
+      if (_isPublic) {
+        try {
+          final child = await fs.getChild(widget.childId);
+          if (child != null && child.parentId != null && child.parentId!.isNotEmpty) {
+            await ref.read(fastApiServiceProvider).sendNotification(
+              uid: child.parentId!,
+              type: 'PAR-02',
+              title: 'New Note from HCW',
+              body: '${user?.name ?? 'Your HCW'} added a note about ${child.name}.',
+              relatedChildId: widget.childId,
+            );
+          }
+        } catch (_) {}
+      }
+
+      // Fire TCH-04 notification if isTeacherVisible
+      if (_isTeacherVisible) {
+        try {
+          final child = await fs.getChild(widget.childId);
+          if (child != null && child.teacherIds.isNotEmpty) {
+            for (final tid in child.teacherIds) {
+              await ref.read(fastApiServiceProvider).sendNotification(
+                uid: tid,
+                type: 'TCH-04',
+                title: 'New Note Shared',
+                body: 'A clinical note has been shared with you about ${child.name}.',
+                relatedChildId: widget.childId,
+              );
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        _noteCtrl.clear();
+        setState(() { _isPublic = false; _isTeacherVisible = false; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Note saved.'), backgroundColor: HearTechColors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
+        );
+      }
+    }
+    if (mounted) setState(() => _isSaving = false);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final firestoreService = ref.read(firestoreServiceProvider);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -704,24 +780,112 @@ class _NotesTabState extends State<_NotesTab> {
           ]),
           const SizedBox(height: 12),
           HearTechButton(
-            label: 'Save Note',
-            onPressed: () {
-              if (_noteCtrl.text.trim().isEmpty) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Note saved.'), backgroundColor: HearTechColors.green),
-              );
-              _noteCtrl.clear();
-            },
+            label: _isSaving ? 'Saving...' : 'Save Note',
+            onPressed: _isSaving ? null : _saveNote,
           ),
           const SizedBox(height: 24),
           Text('Previous Notes', style: HearTechTextStyles.sectionHeader()),
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: HearTechDecorations.cardDecoration,
-            child: Center(child: Text('Notes will appear here.', style: HearTechTextStyles.caption())),
+
+          StreamBuilder(
+            stream: firestoreService.streamNotes(widget.childId),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
+              }
+              final notes = snap.data ?? [];
+              if (notes.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: HearTechDecorations.cardDecoration,
+                  child: Center(child: Text('No notes yet.', style: HearTechTextStyles.caption())),
+                );
+              }
+              return Column(
+                children: notes.map((note) {
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(16),
+                    decoration: HearTechDecorations.cardDecoration,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          AvatarCircle(name: note.authorName, radius: 16),
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(note.authorName, style: HearTechTextStyles.subtitle()),
+                              Text(DateFormat('MMM d, yyyy • HH:mm').format(note.createdAt),
+                                  style: HearTechTextStyles.caption()),
+                            ],
+                          )),
+                        ]),
+                        const SizedBox(height: 10),
+                        Text(note.text, style: HearTechTextStyles.body()),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          _VisibilityChip(
+                            label: 'Parent',
+                            active: note.isPublic,
+                            color: HearTechColors.deepTeal,
+                            onTap: () {
+                              firestoreService.updateNoteVisibility(
+                                widget.childId, note.noteId, isPublic: !note.isPublic,
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          _VisibilityChip(
+                            label: 'Teacher',
+                            active: note.isTeacherVisible,
+                            color: HearTechColors.purple,
+                            onTap: () {
+                              firestoreService.updateNoteVisibility(
+                                widget.childId, note.noteId, isTeacherVisible: !note.isTeacherVisible,
+                              );
+                            },
+                          ),
+                        ]),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _VisibilityChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+  const _VisibilityChip({required this.label, required this.active, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.15) : HearTechColors.background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: active ? color : HearTechColors.textSecondary.withValues(alpha: 0.3)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(active ? Icons.visibility : Icons.visibility_off, size: 14,
+              color: active ? color : HearTechColors.textSecondary),
+          const SizedBox(width: 4),
+          Text(label, style: HearTechTextStyles.caption(color: active ? color : HearTechColors.textSecondary)),
+        ]),
       ),
     );
   }

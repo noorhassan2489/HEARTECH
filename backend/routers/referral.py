@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
-from main import verify_firebase_token
+from main import verify_firebase_token  # noqa: E402
 
 router = APIRouter()
 
@@ -45,7 +45,7 @@ async def generate_referral(request: ReferralRequest, token: dict = Depends(veri
     Generate a clinical referral letter using Gemini Pro based on HearTech prompt.
     """
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
             "You are a clinical audiologist assistant. Generate a formal pediatric hearing "
             "referral letter in professional medical language. Include: patient demographics, "

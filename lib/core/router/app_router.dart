@@ -23,6 +23,7 @@ import 'package:heartech/features/screening/screens/teacher_observation_screen.d
 import 'package:heartech/features/screening/screens/invite_teacher_screen.dart';
 import 'package:heartech/features/screening/screens/pending_invites_screen.dart';
 import 'package:heartech/features/referral/screens/referral_preview_screen.dart';
+import 'package:heartech/features/referral/screens/referral_generation_screen.dart';
 import 'package:heartech/features/screening/screens/parent_home_screening_screen.dart';
 import 'package:heartech/features/screening/screens/my_class_screen.dart';
 import 'package:heartech/features/settings/screens/hcw_profile_screen.dart';
@@ -34,15 +35,9 @@ import 'package:heartech/features/speech/screens/speech_games_screen.dart';
 import 'package:heartech/features/speech/screens/show_and_tell_screen.dart';
 import 'package:heartech/features/speech/screens/ling_six_screen.dart';
 
-class _Placeholder extends StatelessWidget {
-  final String title;
-  const _Placeholder(this.title);
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
-    body: Center(child: Text(title)),
-  );
-}
+// ============================================================================
+// ROUTE NAMES
+// ============================================================================
 
 class Routes {
   Routes._();
@@ -61,6 +56,7 @@ class Routes {
   static const hcwChildProfile = '/hcw/child/:childId';
   static const hcwNewScreening = '/hcw/screening/new';
   static const referralPreview = '/referral-preview/:childId/:referralId';
+  static const referralGeneration = '/referral-generate/:childId/:screeningId';
   static const parentDashboard = '/parent/dashboard';
   static const parentChildren = '/parent/children';
   static const parentSpeechGames = '/parent/speech-games';
@@ -82,6 +78,59 @@ class Routes {
   static const notificationPrefs = '/settings/notification-prefs';
 }
 
+// ============================================================================
+// SLIDE TRANSITION — 280ms left-to-right with slide
+// ============================================================================
+
+const _transitionDuration = Duration(milliseconds: 280);
+
+CustomTransitionPage<void> _slidePage({
+  required Widget child,
+  required GoRouterState state,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: _transitionDuration,
+    reverseTransitionDuration: _transitionDuration,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      // Forward: slide left-to-right (new page from right)
+      final slideIn = Tween<Offset>(
+        begin: const Offset(1.0, 0.0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut));
+
+      // Back: slide right-to-left (current page exits to right)
+      final slideOut = Tween<Offset>(
+        begin: Offset.zero,
+        end: const Offset(1.0, 0.0),
+      ).animate(
+        CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeIn),
+      );
+
+      return SlideTransition(
+        position: slideIn,
+        child: SlideTransition(
+          position: slideOut,
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+/// Helper to create a GoRoute with the slide transition.
+GoRoute _route(String path, Widget Function(GoRouterState s) builder) {
+  return GoRoute(
+    path: path,
+    pageBuilder: (context, state) => _slidePage(child: builder(state), state: state),
+  );
+}
+
+// ============================================================================
+// ROUTER PROVIDER
+// ============================================================================
+
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: Routes.splash,
@@ -98,47 +147,60 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // ── Auth ────────────────────────────────────────────────────────────
       GoRoute(path: Routes.splash, builder: (c, s) => const SplashScreen()),
-      GoRoute(path: Routes.roleSelect, builder: (c, s) => const RoleSelectionScreen()),
-      GoRoute(path: Routes.hcwLogin, builder: (c, s) => const HcwLoginScreen()),
-      GoRoute(path: Routes.parentLogin, builder: (c, s) => const ParentLoginScreen()),
-      GoRoute(path: Routes.teacherLogin, builder: (c, s) => const TeacherLoginScreen()),
-      GoRoute(path: Routes.hcwRegister, builder: (c, s) => const HcwRegistrationScreen()),
-      GoRoute(path: Routes.parentRegister, builder: (c, s) => const ParentRegistrationScreen()),
-      GoRoute(path: Routes.teacherRegister, builder: (c, s) => const TeacherRegistrationScreen()),
-      GoRoute(path: Routes.hcwDashboard, builder: (c, s) => const HcwDashboardScreen()),
-      GoRoute(path: Routes.hcwPatients, builder: (c, s) => const HcwPatientsScreen()),
-      GoRoute(path: Routes.hcwNotifications, builder: (c, s) => const NotificationsScreen(role: 'hcw')),
-      GoRoute(path: Routes.hcwProfile, builder: (c, s) => const HcwProfileScreen()),
-      GoRoute(path: Routes.hcwChildProfile, builder: (c, s) => ChildProfileScreen(
+      _route(Routes.roleSelect, (_) => const RoleSelectionScreen()),
+      _route(Routes.hcwLogin, (_) => const HcwLoginScreen()),
+      _route(Routes.parentLogin, (_) => const ParentLoginScreen()),
+      _route(Routes.teacherLogin, (_) => const TeacherLoginScreen()),
+      _route(Routes.hcwRegister, (_) => const HcwRegistrationScreen()),
+      _route(Routes.parentRegister, (_) => const ParentRegistrationScreen()),
+      _route(Routes.teacherRegister, (_) => const TeacherRegistrationScreen()),
+
+      // ── HCW ─────────────────────────────────────────────────────────────
+      _route(Routes.hcwDashboard, (_) => const HcwDashboardScreen()),
+      _route(Routes.hcwPatients, (_) => const HcwPatientsScreen()),
+      _route(Routes.hcwNotifications, (_) => const NotificationsScreen(role: 'hcw')),
+      _route(Routes.hcwProfile, (_) => const HcwProfileScreen()),
+      _route(Routes.hcwChildProfile, (s) => ChildProfileScreen(
           childId: s.pathParameters['childId']!, viewerRole: 'hcw')),
-      GoRoute(path: Routes.hcwNewScreening, builder: (c, s) => const HcwNewScreeningScreen()),
-      GoRoute(path: Routes.referralPreview, builder: (c, s) => ReferralPreviewScreen(
+      _route(Routes.hcwNewScreening, (_) => const HcwNewScreeningScreen()),
+      _route(Routes.referralPreview, (s) => ReferralPreviewScreen(
           childId: s.pathParameters['childId']!, referralId: s.pathParameters['referralId']!)),
-      GoRoute(path: Routes.parentDashboard, builder: (c, s) => const ParentDashboardScreen()),
-      GoRoute(path: Routes.parentChildren, builder: (c, s) => const _Placeholder('My Children')),
-      GoRoute(path: Routes.parentSpeechGames, builder: (c, s) => const SpeechGamesScreen()),
-      GoRoute(path: Routes.parentNotifications, builder: (c, s) => const NotificationsScreen(role: 'parent')),
-      GoRoute(path: Routes.parentProfile, builder: (c, s) => const ParentProfileScreen()),
-      GoRoute(path: Routes.parentChildProfile, builder: (c, s) => ChildProfileScreen(
+      _route(Routes.referralGeneration, (s) => ReferralGenerationScreen(
+          childId: s.pathParameters['childId']!, screeningId: s.pathParameters['screeningId']!)),
+
+      // ── Parent ──────────────────────────────────────────────────────────
+      _route(Routes.parentDashboard, (_) => const ParentDashboardScreen()),
+      _route(Routes.parentChildren, (_) => const ParentDashboardScreen()),
+      _route(Routes.parentSpeechGames, (_) => const SpeechGamesScreen()),
+      _route(Routes.parentNotifications, (_) => const NotificationsScreen(role: 'parent')),
+      _route(Routes.parentProfile, (_) => const ParentProfileScreen()),
+      _route(Routes.parentChildProfile, (s) => ChildProfileScreen(
           childId: s.pathParameters['childId']!, viewerRole: 'parent')),
-      GoRoute(path: Routes.parentClaimProfile, builder: (c, s) => const ClaimProfileScreen()),
-      GoRoute(path: Routes.parentScreening, builder: (c, s) => const ParentHomeScreeningScreen()),
-      GoRoute(path: Routes.parentInviteTeacher, builder: (c, s) => InviteTeacherScreen(
+      _route(Routes.parentClaimProfile, (_) => const ClaimProfileScreen()),
+      _route(Routes.parentScreening, (_) => const ParentHomeScreeningScreen()),
+      _route(Routes.parentInviteTeacher, (s) => InviteTeacherScreen(
           childId: s.pathParameters['childId']!)),
-      GoRoute(path: Routes.teacherDashboard, builder: (c, s) => const TeacherDashboardScreen()),
-      GoRoute(path: Routes.teacherMyClass, builder: (c, s) => const MyClassScreen()),
-      GoRoute(path: Routes.teacherNotifications, builder: (c, s) => const NotificationsScreen(role: 'teacher')),
-      GoRoute(path: Routes.teacherProfile, builder: (c, s) => const TeacherProfileScreen()),
-      GoRoute(path: Routes.teacherInvites, builder: (c, s) => const PendingInvitesScreen()),
-      GoRoute(path: Routes.teacherChildProfile, builder: (c, s) => ChildProfileScreen(
+
+      // ── Teacher ─────────────────────────────────────────────────────────
+      _route(Routes.teacherDashboard, (_) => const TeacherDashboardScreen()),
+      _route(Routes.teacherMyClass, (_) => const MyClassScreen()),
+      _route(Routes.teacherNotifications, (_) => const NotificationsScreen(role: 'teacher')),
+      _route(Routes.teacherProfile, (_) => const TeacherProfileScreen()),
+      _route(Routes.teacherInvites, (_) => const PendingInvitesScreen()),
+      _route(Routes.teacherChildProfile, (s) => ChildProfileScreen(
           childId: s.pathParameters['childId']!, viewerRole: 'teacher')),
-      GoRoute(path: Routes.teacherObservation, builder: (c, s) => const TeacherObservationScreen()),
-      GoRoute(path: Routes.showAndTell, builder: (c, s) => ShowAndTellScreen(
+      _route(Routes.teacherObservation, (_) => const TeacherObservationScreen()),
+
+      // ── Speech ──────────────────────────────────────────────────────────
+      _route(Routes.showAndTell, (s) => ShowAndTellScreen(
           childId: s.pathParameters['childId']!)),
-      GoRoute(path: Routes.lingSix, builder: (c, s) => LingSixScreen(
+      _route(Routes.lingSix, (s) => LingSixScreen(
           childId: s.pathParameters['childId']!)),
-      GoRoute(path: Routes.notificationPrefs, builder: (c, s) => const NotificationPrefsScreen()),
+
+      // ── Settings ────────────────────────────────────────────────────────
+      _route(Routes.notificationPrefs, (_) => const NotificationPrefsScreen()),
     ],
   );
 });
