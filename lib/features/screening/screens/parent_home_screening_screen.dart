@@ -11,9 +11,11 @@ import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/screening_progress_bar.dart';
 import 'package:heartech/shared/widgets/disclaimer_footer.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/risk_badge.dart';
+import 'package:heartech/core/constants/firestore_paths.dart';
 
 /// Parent Home Screening — select child → questionnaire → plain-language result.
-/// No clinical numbers visible to parent.
+/// No clinical numbers visible to parent. Results use spec-exact headings.
 class ParentHomeScreeningScreen extends ConsumerStatefulWidget {
   const ParentHomeScreeningScreen({super.key});
   @override
@@ -26,7 +28,10 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   ChildModel? _selectedChild;
   final List<ScreeningAnswer> _answers = [];
   String _riskLevel = 'low';
+  int _riskScore = 0;
+  String? _screeningId;
   List<Map<String, dynamic>> _questions = [];
+  String? _selectedAnswer;
 
   bool _isLoading = false;
 
@@ -41,13 +46,15 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
           _questions = fetched.map((q) => {
             'id': q['id'],
             'q': q['text'],
-            'clinical': q['isClinical'],
+            'clinical': false, // Parent questions have no clinical markers
           }).toList();
         });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load: $e'), backgroundColor: HearTechColors.coralRed));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Failed to load questions: $e'),
+            backgroundColor: HearTechColors.coralRed));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -60,12 +67,16 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
     setState(() => _step = 1);
   }
 
-  void _answer(String val) {
+  void _answerAndAdvance() {
+    if (_selectedAnswer == null) return;
+
     _answers.add(ScreeningAnswer(
       questionId: _questions[_qIndex]['id'],
       questionText: _questions[_qIndex]['q'],
-      answer: val,
+      answer: _selectedAnswer!,
     ));
+    _selectedAnswer = null;
+
     if (_qIndex < _questions.length - 1) {
       setState(() => _qIndex++);
     } else {
@@ -78,13 +89,13 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
 
     try {
       final fastApi = ref.read(fastApiServiceProvider);
-      
+      final firestoreService = ref.read(firestoreServiceProvider);
+
       final apiAnswers = _answers.map((a) {
-        final qMatched = _questions.firstWhere((q) => q['id'] == a.questionId, orElse: () => {'clinical': false});
         return {
           'questionId': a.questionId,
           'answer': a.answer,
-          'isClinical': qMatched['clinical'],
+          'isClinical': false,
         };
       }).toList();
 
@@ -94,16 +105,57 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
         conductorRole: 'parent',
         childId: _selectedChild!.childId,
       );
-      
+
+      _riskLevel = response['riskLevel'] as String;
+      _riskScore = response['riskScore'] as int? ?? 0;
+
+      // Write screening to Firestore
+      _screeningId = firestoreService.generateId(
+          FirestorePaths.screenings(_selectedChild!.childId));
+      final screening = ScreeningModel(
+        screeningId: _screeningId!,
+        conductedBy: ref.read(currentFirebaseUserProvider)?.uid ?? '',
+        conductorRole: 'parent',
+        date: DateTime.now(),
+        ageBracket: _selectedChild!.ageBracket,
+        answers: _answers,
+        riskScore: _riskScore,
+        riskLevel: _riskLevel,
+      );
+      await firestoreService.addScreening(_selectedChild!.childId, screening);
+
+      // Update child document
+      await firestoreService.updateChild(_selectedChild!.childId, {
+        'lastScreeningDate': DateTime.now(),
+        'riskScore': _riskScore,
+        'riskLevel': _riskLevel,
+        'lastUpdatedAt': DateTime.now(),
+      });
+
+      // Fire HCW-07: Parent home screening submitted → to HCW
+      final hcwIds = _selectedChild!.hcwIds;
+      if (hcwIds.isNotEmpty) {
+        try {
+          await fastApi.sendNotification(
+            uid: hcwIds[0],
+            type: 'HCW-07',
+            title: 'Home Screening Completed',
+            body: 'A parent completed a home screening for ${_selectedChild!.name}.',
+            relatedChildId: _selectedChild!.childId,
+          );
+        } catch (_) {
+          // Non-critical — don't block result
+        }
+      }
+
       if (mounted) {
-        setState(() {
-          _riskLevel = response['riskLevel'] as String;
-          _step = 3;
-        });
+        setState(() { _step = 3; });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scoring error: $e'), backgroundColor: HearTechColors.coralRed));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Scoring error: $e'),
+            backgroundColor: HearTechColors.coralRed));
         setState(() { _step = 0; });
       }
     }
@@ -120,7 +172,8 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
           onPressed: () => context.go(Routes.parentDashboard),
         ),
         title: Text(
-          _step == 0 ? 'Select Child' : _step == 1 ? 'Home Screening' : _step == 2 ? 'Processing...' : 'Results',
+          _step == 0 ? 'Select Child' : _step == 1 ? 'Home Screening'
+              : _step == 2 ? 'Processing...' : 'Results',
           style: HearTechTextStyles.sectionHeader(),
         ),
         centerTitle: true,
@@ -149,7 +202,18 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (children) {
         if (children.isEmpty) {
-          return Center(child: Text('No children linked.', style: HearTechTextStyles.subtitle()));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.child_care, size: 56, color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
+                const SizedBox(height: 16),
+                Text('No children linked yet.', style: HearTechTextStyles.subtitle()),
+                const SizedBox(height: 8),
+                Text('Claim a profile first.', style: HearTechTextStyles.caption()),
+              ],
+            ),
+          );
         }
         return ListView.separated(
           padding: const EdgeInsets.all(20),
@@ -176,10 +240,12 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
                       Text(c.ageString, style: HearTechTextStyles.caption()),
                     ],
                   )),
+                  RiskBadge(riskLevel: c.riskLevel),
+                  const SizedBox(width: 8),
                   const Icon(Icons.chevron_right, color: HearTechColors.deepTeal),
                 ]),
               ),
-            );
+            ).animate(delay: (i * 60).ms).fadeIn(duration: 200.ms).slideX(begin: 0.05, end: 0);
           },
         );
       },
@@ -187,51 +253,62 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   }
 
   Widget _buildQuestion() {
+    if (_questions.isEmpty) return const SizedBox.shrink();
     final q = _questions[_qIndex];
+    final isLast = _qIndex == _questions.length - 1;
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(children: [
         ScreeningProgressBar(current: _qIndex + 1, total: _questions.length),
         const SizedBox(height: 12),
         Text('Question ${_qIndex + 1} of ${_questions.length}', style: HearTechTextStyles.caption()),
-        if (q['clinical'] == true) ...[
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: HearTechColors.coralRed.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text('Clinical', style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
-                .copyWith(fontWeight: FontWeight.w700)),
-          ),
-        ],
         const SizedBox(height: 24),
         Expanded(
-          child: Center(
-            child: Text(q['q'] as String, style: HearTechTextStyles.screenTitle(), textAlign: TextAlign.center)
-                .animate().fadeIn(duration: 200.ms),
+          child: SingleChildScrollView(
+            child: Column(children: [
+              Text(q['q'] as String, style: HearTechTextStyles.screenTitle(), textAlign: TextAlign.center)
+                  .animate().fadeIn(duration: 200.ms),
+              const SizedBox(height: 24),
+              // 4 response cards: Yes | Sometimes | No | I'm not sure
+              _SelectableResp(label: 'Yes', color: HearTechColors.green, icon: Icons.check_circle_outline,
+                  selected: _selectedAnswer == 'yes', onTap: () => setState(() => _selectedAnswer = 'yes')),
+              const SizedBox(height: 10),
+              _SelectableResp(label: 'Sometimes', color: HearTechColors.warmOrange, icon: Icons.change_history,
+                  selected: _selectedAnswer == 'sometimes', onTap: () => setState(() => _selectedAnswer = 'sometimes')),
+              const SizedBox(height: 10),
+              _SelectableResp(label: 'No', color: HearTechColors.coralRed, icon: Icons.cancel_outlined,
+                  selected: _selectedAnswer == 'no', onTap: () => setState(() => _selectedAnswer = 'no')),
+              const SizedBox(height: 10),
+              _SelectableResp(label: "I'm not sure", color: HearTechColors.textSecondary, icon: Icons.help_outline,
+                  selected: _selectedAnswer == 'not_sure', onTap: () => setState(() => _selectedAnswer = 'not_sure')),
+            ]),
           ),
         ),
-        // 4 response cards per prompt: Yes | Sometimes | No | I'm not sure
-        _Resp(label: 'Yes', color: HearTechColors.green, icon: Icons.check_circle_outline,
-            onTap: () => _answer('yes')),
-        const SizedBox(height: 10),
-        _Resp(label: 'Sometimes', color: HearTechColors.warmOrange, icon: Icons.change_history,
-            onTap: () => _answer('sometimes')),
-        const SizedBox(height: 10),
-        _Resp(label: 'No', color: HearTechColors.coralRed, icon: Icons.cancel_outlined,
-            onTap: () => _answer('no')),
-        const SizedBox(height: 10),
-        _Resp(label: "I'm not sure", color: HearTechColors.textSecondary, icon: Icons.help_outline,
-            onTap: () => _answer('not_sure')),
         const SizedBox(height: 16),
-        if (_qIndex > 0)
-          TextButton.icon(
-            onPressed: () { _answers.removeLast(); setState(() => _qIndex--); },
-            icon: const Icon(Icons.arrow_back, size: 18),
-            label: const Text('Previous'),
-          ),
+        Row(
+          children: [
+            if (_qIndex > 0)
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () {
+                    _answers.removeLast();
+                    setState(() { _qIndex--; _selectedAnswer = null; });
+                  },
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('Back'),
+                ),
+              ),
+            if (_qIndex > 0) const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: HearTechButton(
+                label: isLast ? 'Submit' : 'Next',
+                onPressed: _selectedAnswer != null ? _answerAndAdvance : null,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
       ]),
     );
@@ -258,7 +335,7 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   }
 
   Widget _buildResult() {
-    // Plain-language interpretation only — no clinical numbers for parent
+    // Plain-language only — spec-exact headings and messages
     final Color bannerColor;
     final String heading;
     final String message;
@@ -267,20 +344,20 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
     switch (_riskLevel) {
       case 'low':
         bannerColor = HearTechColors.green;
-        heading = 'No concerns detected';
-        message = 'Keep doing great! Your child\'s responses suggest healthy hearing development.';
+        heading = 'Things Look Great!';
+        message = 'No hearing concerns detected. Keep up the great work!';
         icon = Icons.check_circle;
         break;
       case 'medium':
         bannerColor = HearTechColors.warmOrange;
-        heading = 'Some patterns noted';
-        message = 'Consider scheduling a check-up with a healthcare professional for further assessment.';
+        heading = 'Some Patterns Noted';
+        message = 'We noticed a few things worth discussing. Consider scheduling a check-up with your healthcare provider.';
         icon = Icons.info_outline;
         break;
       default:
         bannerColor = HearTechColors.coralRed;
-        heading = 'We recommend seeing a professional';
-        message = 'We recommend seeing a healthcare professional soon. Your HCW has been notified of these results.';
+        heading = 'Professional Advice Recommended';
+        message = "We recommend seeing a healthcare professional soon to discuss your child's hearing development.";
         icon = Icons.warning_amber;
     }
 
@@ -300,7 +377,8 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
           child: Column(children: [
             Icon(icon, size: 56, color: bannerColor),
             const SizedBox(height: 16),
-            Text(heading, style: HearTechTextStyles.screenTitle(color: bannerColor), textAlign: TextAlign.center),
+            Text(heading, style: HearTechTextStyles.screenTitle(color: bannerColor),
+                textAlign: TextAlign.center),
             const SizedBox(height: 8),
             Text(message, style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
                 textAlign: TextAlign.center),
@@ -313,7 +391,7 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
               style: HearTechTextStyles.subtitle(), textAlign: TextAlign.center),
         const SizedBox(height: 32),
 
-        HearTechButton(label: 'Back to Dashboard', onPressed: () => context.go(Routes.parentDashboard)),
+        HearTechButton(label: 'Done', onPressed: () => context.go(Routes.parentDashboard)),
         const SizedBox(height: 24),
         const DisclaimerFooter(),
       ]),
@@ -321,9 +399,11 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   }
 }
 
-class _Resp extends StatelessWidget {
-  final String label; final Color color; final IconData icon; final VoidCallback onTap;
-  const _Resp({required this.label, required this.color, required this.icon, required this.onTap});
+class _SelectableResp extends StatelessWidget {
+  final String label; final Color color; final IconData icon;
+  final bool selected; final VoidCallback onTap;
+  const _SelectableResp({required this.label, required this.color, required this.icon,
+      required this.selected, required this.onTap});
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -332,14 +412,20 @@ class _Resp extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+          color: color.withValues(alpha: selected ? 0.15 : 0.06),
           borderRadius: HearTechDecorations.cardBorderRadius,
-          border: Border.all(color: color.withValues(alpha: 0.25)),
+          border: Border.all(
+            color: selected ? HearTechColors.deepTeal : color.withValues(alpha: 0.2),
+            width: selected ? 2 : 1,
+          ),
         ),
         child: Row(children: [
           Icon(icon, color: color, size: 24),
           const SizedBox(width: 14),
-          Text(label, style: HearTechTextStyles.subtitle(color: color).copyWith(fontWeight: FontWeight.w700)),
+          Expanded(child: Text(label, style: HearTechTextStyles.subtitle(color: color)
+              .copyWith(fontWeight: FontWeight.w700))),
+          if (selected)
+            const Icon(Icons.check_circle, color: HearTechColors.deepTeal, size: 22),
         ]),
       ),
     );

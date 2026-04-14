@@ -272,50 +272,84 @@ class _OverviewTab extends ConsumerWidget {
             const SizedBox(height: 16),
           ],
 
-          // Handover Code (HCW only)
-          if (viewerRole == 'hcw' && child.handoverCode != null) ...[
+          // Handover Code (HCW only, only when parent not linked)
+          if (viewerRole == 'hcw' && child.handoverCode != null && !child.isClaimed) ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: HearTechColors.paleTeal,
+                color: HearTechColors.warmOrange.withValues(alpha: 0.1),
                 borderRadius: HearTechDecorations.cardBorderRadius,
-                border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.2)),
+                border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.3)),
               ),
               child: Column(children: [
-                Text('Handover Code', style: HearTechTextStyles.sectionHeader()),
+                Text('Share this code with the parent',
+                    style: HearTechTextStyles.subtitle(color: HearTechColors.warmOrange)),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(child.handoverCode!.code.length, (i) => Container(
-                    width: 40, height: 50,
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: 44, height: 56,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
                       color: HearTechColors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.5)),
                     ),
                     child: Center(child: Text(child.handoverCode!.code[i],
                         style: HearTechTextStyles.handoverCode())),
+                  ).animate(delay: (i * 80).ms).scale(
+                    begin: const Offset(0, 0), end: const Offset(1, 1),
+                    duration: 300.ms, curve: Curves.elasticOut,
                   )),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  child.handoverCode!.isExpired ? 'EXPIRED'
-                      : 'Expires ${DateFormat('MMM d, y').format(child.handoverCode!.expiresAt)}',
-                  style: HearTechTextStyles.caption(
-                    color: child.handoverCode!.isExpired ? HearTechColors.coralRed : HearTechColors.textSecondary,
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.timer_outlined, size: 16, color: HearTechColors.textSecondary),
+                  const SizedBox(width: 4),
+                  Text(
+                    child.handoverCode!.isExpired ? 'EXPIRED'
+                        : 'Expires ${DateFormat('MMM d, y • HH:mm').format(child.handoverCode!.expiresAt)}',
+                    style: HearTechTextStyles.caption(
+                      color: child.handoverCode!.isExpired ? HearTechColors.coralRed : HearTechColors.textSecondary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
+                ]),
+                const SizedBox(height: 12),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   TextButton.icon(
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: child.handoverCode!.code));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied!')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Copied!'), backgroundColor: HearTechColors.green),
+                      );
                     },
                     icon: const Icon(Icons.copy, size: 16),
-                    label: Text('Copy', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
+                    label: Text('Copy Code', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: () async {
+                      try {
+                        final uid = ref.read(firebaseAuthServiceProvider).uid!;
+                        final result = await ref.read(fastApiServiceProvider).regenerateHandoverCode(
+                          childId: child.childId, hcwUid: uid,
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('New code: ${result['newCode']}'), backgroundColor: HearTechColors.green),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text('Regenerate', style: HearTechTextStyles.caption(color: HearTechColors.warmOrange)),
                   ),
                 ]),
               ]),
@@ -350,6 +384,10 @@ class _OverviewTab extends ConsumerWidget {
             const SizedBox(height: 16),
             _TeacherInfoCard(childId: childId, teacherIds: child.teacherIds, canLink: child.canLinkTeacher),
             const SizedBox(height: 16),
+          ],
+
+          // Screening history chart (HCW and Parent)
+          if (viewerRole != 'teacher') ...[
             _ScreeningChart(childId: childId),
             const SizedBox(height: 16),
           ],
@@ -421,7 +459,7 @@ class _OverviewTab extends ConsumerWidget {
 
     if (confirmed == true && context.mounted) {
       try {
-        await ref.read(fastApiServiceProvider).removeTeacher(childId: childId);
+        await ref.read(fastApiServiceProvider).removeTeacher(childId: childId, teacherUid: ref.read(currentFirebaseUserProvider)?.uid ?? '');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unlinked from student')));
           context.go(Routes.teacherDashboard);
@@ -1077,9 +1115,31 @@ class _HcwInfoCard extends ConsumerStatefulWidget {
 class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
   bool _isLoading = false;
 
-  Future<void> _removeHcw(String primaryHcwId) async {
-    final parentUid = ref.read(firebaseAuthServiceProvider).uid;
-    if (parentUid == null) return;
+  Future<void> _removeHcw(String primaryHcwId, String hcwName) async {
+    // Confirm dialog per spec
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: HearTechDecorations.cardBorderRadius),
+        title: Text('Remove HCW?', style: HearTechTextStyles.sectionHeader()),
+        content: Text(
+          'Are you sure? This will remove Dr. $hcwName from your child\'s profile.',
+          style: HearTechTextStyles.body(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: HearTechTextStyles.button(color: HearTechColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: HearTechTextStyles.button(color: HearTechColors.coralRed)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     setState(() => _isLoading = true);
     try {
       await ref.read(fastApiServiceProvider).removeHcw(
@@ -1090,7 +1150,7 @@ class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('HCW removed successfully'), backgroundColor: HearTechColors.green),
         );
-        context.go(Routes.parentDashboard); // Redirect gracefully
+        context.go(Routes.parentDashboard);
       }
     } catch (e) {
       if (mounted) {
@@ -1117,19 +1177,7 @@ class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
           padding: const EdgeInsets.all(20),
           decoration: HearTechDecorations.cardDecoration,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text('Healthcare Worker', style: HearTechTextStyles.sectionHeader()),
-              if (_isLoading)
-                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              else
-                IconButton(
-                  icon: const Icon(Icons.person_remove, color: HearTechColors.coralRed, size: 20),
-                  onPressed: () => _removeHcw(primaryHcwId),
-                  tooltip: 'Remove HCW',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-            ]),
+            Text('Healthcare Worker', style: HearTechTextStyles.sectionHeader()),
             const SizedBox(height: 12),
             Row(children: [
               AvatarCircle(name: hcw.name, photoUrl: hcw.profilePhotoUrl, radius: 24),
@@ -1139,6 +1187,18 @@ class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
                 Text('${hcw.title} • ${hcw.hospitalName ?? "Unknown Hospital"}', style: HearTechTextStyles.caption()),
               ])),
             ]),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _isLoading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : GestureDetector(
+                      onTap: () => _removeHcw(primaryHcwId, hcw.name),
+                      child: Text('Remove HCW',
+                          style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
+                              .copyWith(fontWeight: FontWeight.w700)),
+                    ),
+            ),
           ]),
         ).animate().fadeIn(duration: 300.ms);
       },
@@ -1160,12 +1220,37 @@ class _TeacherInfoCardState extends ConsumerState<_TeacherInfoCard> {
   bool _isLoading = false;
 
   Future<void> _removeTeacher() async {
-    final parentUid = ref.read(firebaseAuthServiceProvider).uid;
-    if (parentUid == null || widget.teacherIds.isEmpty) return;
+    if (widget.teacherIds.isEmpty) return;
+
+    // Confirm dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: HearTechDecorations.cardBorderRadius),
+        title: Text('Remove Teacher?', style: HearTechTextStyles.sectionHeader()),
+        content: Text(
+          'This will remove the teacher from your child\'s profile. They will lose access.',
+          style: HearTechTextStyles.body(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: HearTechTextStyles.button(color: HearTechColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: HearTechTextStyles.button(color: HearTechColors.coralRed)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     setState(() => _isLoading = true);
     try {
       await ref.read(fastApiServiceProvider).removeTeacher(
         childId: widget.childId,
+        teacherUid: widget.teacherIds.first,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1187,10 +1272,29 @@ class _TeacherInfoCardState extends ConsumerState<_TeacherInfoCard> {
     if (!widget.canLink) return const SizedBox.shrink();
 
     if (widget.teacherIds.isEmpty) {
-      return HearTechButton(
-        label: 'Invite Teacher',
-        icon: Icons.person_add,
-        onPressed: () => context.go(Routes.parentInviteTeacher.replaceFirst(':childId', widget.childId)),
+      // Purple card with graduation cap for Phase 4 spec
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: HearTechColors.purple.withValues(alpha: 0.08),
+          borderRadius: HearTechDecorations.cardBorderRadius,
+          border: Border.all(color: HearTechColors.purple.withValues(alpha: 0.2)),
+        ),
+        child: Column(children: [
+          const Icon(Icons.school, size: 36, color: HearTechColors.purple),
+          const SizedBox(height: 12),
+          Text('Invite a teacher to support your child\'s development',
+              style: HearTechTextStyles.body(color: HearTechColors.purple),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          HearTechButton(
+            label: 'Invite Teacher',
+            icon: Icons.person_add,
+            onPressed: () => context.go(Routes.parentInviteTeacher.replaceFirst(':childId', widget.childId)),
+            backgroundColor: HearTechColors.purple,
+          ),
+        ]),
       ).animate().fadeIn(duration: 300.ms);
     }
 
@@ -1205,28 +1309,28 @@ class _TeacherInfoCardState extends ConsumerState<_TeacherInfoCard> {
           padding: const EdgeInsets.all(20),
           decoration: HearTechDecorations.cardDecoration,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text('School Teacher', style: HearTechTextStyles.sectionHeader()),
-              if (_isLoading)
-                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              else
-                IconButton(
-                  icon: const Icon(Icons.person_remove, color: HearTechColors.coralRed, size: 20),
-                  onPressed: _removeTeacher,
-                  tooltip: 'Remove Teacher',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-            ]),
+            Text('School Teacher', style: HearTechTextStyles.sectionHeader()),
             const SizedBox(height: 12),
             Row(children: [
               AvatarCircle(name: teacher.name, photoUrl: teacher.profilePhotoUrl, radius: 24),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(teacher.name, style: HearTechTextStyles.subtitle()),
-                Text('${teacher.title ?? "Teacher"} • ${teacher.schoolName ?? "Unknown School"}', style: HearTechTextStyles.caption()),
+                Text(teacher.schoolName ?? 'Unknown School', style: HearTechTextStyles.caption()),
               ])),
             ]),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _isLoading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : GestureDetector(
+                      onTap: _removeTeacher,
+                      child: Text('Remove Teacher',
+                          style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
+                              .copyWith(fontWeight: FontWeight.w700)),
+                    ),
+            ),
           ]),
         ).animate().fadeIn(duration: 300.ms);
       },

@@ -70,10 +70,13 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
                     // ── Header ──────────────────────────────────────────
                     Row(
                       children: [
-                        AvatarCircle(
-                          name: user.name,
-                          photoUrl: user.profilePhotoUrl,
-                          radius: 24,
+                        GestureDetector(
+                          onTap: () => context.go(Routes.hcwProfile),
+                          child: AvatarCircle(
+                            name: user.name,
+                            photoUrl: user.profilePhotoUrl,
+                            radius: 24,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -172,6 +175,7 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
                     // ── New Screening button (full width) ────────────
                     HearTechButton(
                       label: 'New Screening',
+                      icon: Icons.add,
                       onPressed: () => context.go(Routes.hcwNewScreening),
                     ),
                     const SizedBox(height: 12),

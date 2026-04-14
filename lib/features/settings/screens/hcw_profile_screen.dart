@@ -123,7 +123,7 @@ class HcwProfileScreen extends ConsumerWidget {
                       const Divider(height: 1),
                       _settingsTile(
                         Icons.notifications_outlined, 'Notification Preferences',
-                        () => context.go(Routes.notificationPrefs),
+                        () => context.push(Routes.notificationPrefs),
                       ),
                       const Divider(height: 1),
                       _settingsTile(

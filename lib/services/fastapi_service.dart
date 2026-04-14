@@ -30,6 +30,9 @@ class FastApiService {
     ));
   }
 
+  /// Get current user UID from auth service.
+  String? get _currentUid => _authService.currentUser?.uid;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // HEALTH
   // ═══════════════════════════════════════════════════════════════════════════
@@ -61,12 +64,16 @@ class FastApiService {
     required int ageBracket,
     required String conductorRole,
     String? childId,
+    String? clinicalNote,
+    Map<String, dynamic>? childMetadata,
   }) async {
     final response = await _dio.post('/api/risk-score', data: {
       'answers': answers,
       'ageBracket': ageBracket,
       'conductorRole': conductorRole,
       'childId': childId,
+      if (clinicalNote != null) 'clinicalNote': clinicalNote,
+      if (childMetadata != null) 'childMetadata': childMetadata,
     });
     return response.data;
   }
@@ -117,20 +124,24 @@ class FastApiService {
   // HANDOVER CODE
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Claim a child profile using handover code. Sends parentUid.
   Future<Map<String, dynamic>> claimProfile({
     required String code,
   }) async {
     final response = await _dio.post('/api/claim-profile', data: {
       'code': code,
+      'parentUid': _currentUid,
     });
     return response.data;
   }
 
   Future<Map<String, dynamic>> regenerateHandoverCode({
     required String childId,
+    required String hcwUid,
   }) async {
     final response = await _dio.post('/api/regenerate-handover-code', data: {
       'childId': childId,
+      'hcwUid': hcwUid,
     });
     return response.data;
   }
@@ -139,22 +150,26 @@ class FastApiService {
   // INVITES
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Invite a teacher. Sends parentUid for authorization.
   Future<Map<String, dynamic>> inviteTeacher({
     required String childId,
     required String teacherEmail,
   }) async {
     final response = await _dio.post('/api/invite-teacher', data: {
       'childId': childId,
+      'parentUid': _currentUid,
       'teacherEmail': teacherEmail,
     });
     return response.data;
   }
 
+  /// Cancel a pending invite. Sends parentUid for authorization.
   Future<Map<String, dynamic>> cancelInvite({
     required String inviteId,
   }) async {
     final response = await _dio.post('/api/cancel-invite', data: {
       'inviteId': inviteId,
+      'parentUid': _currentUid,
     });
     return response.data;
   }
@@ -170,31 +185,45 @@ class FastApiService {
     return response.data;
   }
 
-  Future<List<dynamic>> getPendingInvites() async {
-    final response = await _dio.get('/api/pending-invites');
+  /// Get pending invites. Can filter by teacherUid or parentUid.
+  Future<List<dynamic>> getPendingInvites({String? parentUid}) async {
+    final params = <String, dynamic>{};
+    if (parentUid != null) {
+      params['parentUid'] = parentUid;
+    } else {
+      // Default: use current user as teacher
+      params['teacherUid'] = _currentUid;
+    }
+    final response = await _dio.get('/api/pending-invites', queryParameters: params);
     return response.data;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // REMOVE LINKS
+  // REMOVE LINKS — always through FastAPI, NOT direct Firestore
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Remove HCW from child. Sends parentUid for authorization.
   Future<Map<String, dynamic>> removeHcw({
     required String childId,
     required String hcwId,
   }) async {
     final response = await _dio.post('/api/remove-hcw', data: {
       'childId': childId,
+      'parentUid': _currentUid,
       'hcwId': hcwId,
     });
     return response.data;
   }
 
+  /// Remove teacher from child. Sends parentUid + teacherUid for authorization.
   Future<Map<String, dynamic>> removeTeacher({
     required String childId,
+    required String teacherUid,
   }) async {
     final response = await _dio.post('/api/remove-teacher', data: {
       'childId': childId,
+      'parentUid': _currentUid,
+      'teacherUid': teacherUid,
     });
     return response.data;
   }

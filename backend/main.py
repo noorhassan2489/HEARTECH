@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file for GEMINI_API_KEY, CLOUDINARY, etc.
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HEARTECH FASTAPI — Main application entry point
@@ -39,21 +42,7 @@ app.add_middleware(
 # JWT VERIFICATION MIDDLEWARE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def verify_firebase_token(request: Request):
-    """Verify Firebase JWT on every endpoint except GET /health."""
-    if request.url.path == "/health" and request.method == "GET":
-        return None
-
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    token = auth_header.split("Bearer ")[1]
-    try:
-        decoded = firebase_auth.verify_id_token(token)
-        return decoded
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+from auth_dependency import verify_firebase_token
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

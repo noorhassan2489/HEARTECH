@@ -7,8 +7,10 @@ import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/avatar_circle.dart';
 
-/// Parent Claim Profile — 6-box OTP-style code input, animated success.
+/// Parent Handover Code Entry — 6-box OTP input, validated via FastAPI,
+/// animated success with child name + avatar.
 class ClaimProfileScreen extends ConsumerStatefulWidget {
   const ClaimProfileScreen({super.key});
   @override
@@ -21,7 +23,10 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
   bool _isLoading = false;
   bool _showSuccess = false;
   String? _errorMessage;
-  int _attempts = 0;
+
+  // Success data
+  String _childName = '';
+  String _childId = '';
 
   @override
   void dispose() {
@@ -33,6 +38,19 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
   String get _code => _controllers.map((c) => c.text).join();
 
   void _onChanged(int index, String value) {
+    // Paste support: if user pastes 6 characters into first box
+    if (value.length > 1 && index == 0) {
+      final chars = value.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+      for (int i = 0; i < 6 && i < chars.length; i++) {
+        _controllers[i].text = chars[i];
+      }
+      if (chars.length >= 6) {
+        _focusNodes[5].requestFocus();
+      }
+      setState(() => _errorMessage = null);
+      return;
+    }
+
     if (value.isNotEmpty && index < 5) {
       _focusNodes[index + 1].requestFocus();
     }
@@ -55,40 +73,53 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
       return;
     }
 
-    if (_attempts >= 5) {
-      setState(() => _errorMessage = 'Too many attempts. Please try again later.');
-      return;
-    }
-
     setState(() { _isLoading = true; _errorMessage = null; });
 
     try {
       final fastApi = ref.read(fastApiServiceProvider);
-      await fastApi.claimProfile(code: code);
-      _attempts = 0;
+      final result = await fastApi.claimProfile(code: code);
 
-      // Show animated success
+      // Check for error responses
+      if (result.containsKey('error')) {
+        final error = result['error'] as String;
+        String msg;
+        switch (error) {
+          case 'invalid':
+            msg = "This code doesn't match any profile. Please check with your HCW.";
+            break;
+          case 'expired':
+            msg = 'This code has expired (valid 24 hours). Ask your HCW to regenerate.';
+            break;
+          case 'already_used':
+            msg = "This code has already been used. Contact your HCW if this wasn't you.";
+            break;
+          case 'rate_limited':
+            msg = 'Too many attempts. Please wait a few minutes before trying again.';
+            break;
+          default:
+            msg = 'Something went wrong. Please try again.';
+        }
+        setState(() { _errorMessage = msg; _isLoading = false; });
+        return;
+      }
+
+      // Success
+      _childName = result['childName'] as String? ?? '';
+      _childId = result['childId'] as String? ?? '';
+
       setState(() { _showSuccess = true; _isLoading = false; });
 
-      // Auto navigate after 2s
+      // Auto navigate after 2 seconds
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) {
         ref.invalidate(parentChildrenProvider);
-        context.go(Routes.parentDashboard);
+        context.go(Routes.parentChildProfile.replaceFirst(':childId', _childId));
       }
     } catch (e) {
-      _attempts++;
-      String msg;
-      if (e.toString().contains('404') || e.toString().contains('not found')) {
-        msg = 'Invalid code. No matching profile found.';
-      } else if (e.toString().contains('expired')) {
-        msg = 'This code has expired. Ask your HCW for a new one.';
-      } else if (e.toString().contains('claimed') || e.toString().contains('already')) {
-        msg = 'This code has already been used.';
-      } else {
-        msg = 'Something went wrong. Please try again.';
-      }
-      setState(() { _errorMessage = msg; _isLoading = false; });
+      setState(() {
+        _errorMessage = 'Something went wrong. Please try again.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -104,30 +135,28 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
           icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary),
           onPressed: () => context.go(Routes.parentDashboard),
         ),
-        title: Text('Claim Profile', style: HearTechTextStyles.sectionHeader()),
-        centerTitle: true,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
 
-            // Icon
+            // HearTech ear icon
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: HearTechColors.deepTeal.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.qr_code, size: 48, color: HearTechColors.deepTeal),
+              child: const Icon(Icons.hearing, size: 48, color: HearTechColors.deepTeal),
             ).animate().scale(duration: 400.ms, curve: Curves.elasticOut),
             const SizedBox(height: 24),
 
-            Text('Enter Handover Code', style: HearTechTextStyles.screenTitle()),
+            Text('Link Child Profile', style: HearTechTextStyles.screenTitle()),
             const SizedBox(height: 8),
             Text(
-              "Your healthcare worker will provide this 6-character code after completing your child's hearing screening.",
+              'Enter the 6-character code your healthcare worker gave you.',
               style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
               textAlign: TextAlign.center,
             ),
@@ -138,7 +167,7 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(6, (i) {
                 return Container(
-                  width: 48, height: 60,
+                  width: 44, height: 56,
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   child: KeyboardListener(
                     focusNode: FocusNode(),
@@ -149,7 +178,7 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
                       textAlign: TextAlign.center,
                       textCapitalization: TextCapitalization.characters,
                       style: HearTechTextStyles.screenTitle().copyWith(fontSize: 22),
-                      maxLength: 1,
+                      maxLength: i == 0 ? 6 : 1, // Allow paste on first box
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
                         _UpperCaseFormatter(),
@@ -161,21 +190,19 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
                         filled: true,
                         fillColor: _errorMessage != null
                             ? HearTechColors.coralRed.withValues(alpha: 0.05)
-                            : HearTechColors.white,
+                            : HearTechColors.paleTeal,
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: _errorMessage != null
-                                ? HearTechColors.coralRed
-                                : HearTechColors.deepTeal.withValues(alpha: 0.3),
+                            color: HearTechColors.deepTeal.withValues(alpha: 0.2),
                           ),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: HearTechColors.deepTeal, width: 2),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
                             color: _errorMessage != null
                                 ? HearTechColors.coralRed
@@ -185,20 +212,20 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
                       ),
                     ),
                   ),
-                ).animate(delay: (i * 60).ms).scale(
+                ).animate(delay: (i * 80).ms).scale(
                   begin: const Offset(0.8, 0.8),
                   end: const Offset(1, 1),
                   duration: 200.ms,
                 );
               }),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             // Error card
             if (_errorMessage != null)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: HearTechColors.coralRed.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
@@ -206,19 +233,18 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
                 ),
                 child: Row(children: [
                   const Icon(Icons.error_outline, size: 20, color: HearTechColors.coralRed),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(_errorMessage!, style: HearTechTextStyles.caption(color: HearTechColors.coralRed))),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(_errorMessage!,
+                      style: HearTechTextStyles.caption(color: HearTechColors.coralRed))),
                 ]),
               ).animate().fadeIn(duration: 200.ms).shake(hz: 3, offset: const Offset(4, 0), duration: 300.ms),
 
-            if (_attempts > 0 && _attempts < 5)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text('Attempt $_attempts/5', style: HearTechTextStyles.caption(color: HearTechColors.textSecondary)),
-              ),
-
             const SizedBox(height: 32),
-            HearTechButton(label: 'Claim Profile', onPressed: _claimProfile, isLoading: _isLoading),
+            HearTechButton(
+              label: 'Link Profile',
+              onPressed: _code.length == 6 ? _claimProfile : null,
+              isLoading: _isLoading,
+            ),
             const SizedBox(height: 24),
 
             Container(
@@ -246,26 +272,31 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
     return Scaffold(
       backgroundColor: HearTechColors.background,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                color: HearTechColors.green.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_circle, size: 72, color: HearTechColors.green),
-            ).animate()
-                .scale(begin: const Offset(0, 0), end: const Offset(1, 1), duration: 500.ms, curve: Curves.elasticOut),
-            const SizedBox(height: 24),
-            Text('Profile Linked!', style: HearTechTextStyles.screenTitle(color: HearTechColors.green))
-                .animate(delay: 200.ms).fadeIn(duration: 300.ms),
-            const SizedBox(height: 8),
-            Text("Your child's profile has been linked to your account.",
-                style: HearTechTextStyles.body(color: HearTechColors.textSecondary), textAlign: TextAlign.center)
-                .animate(delay: 400.ms).fadeIn(duration: 300.ms),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: HearTechColors.green.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_circle, size: 72, color: HearTechColors.green),
+              ).animate()
+                  .scale(begin: const Offset(0, 0), end: const Offset(1, 1), duration: 600.ms, curve: Curves.elasticOut),
+              const SizedBox(height: 24),
+              Text('$_childName has been added to your account!',
+                  style: HearTechTextStyles.subtitle(color: HearTechColors.green),
+                  textAlign: TextAlign.center)
+                  .animate(delay: 200.ms).fadeIn(duration: 300.ms),
+              const SizedBox(height: 16),
+              AvatarCircle(name: _childName, radius: 32)
+                  .animate(delay: 400.ms).fadeIn(duration: 300.ms).scale(
+                      begin: const Offset(0.8, 0.8), end: const Offset(1, 1)),
+            ],
+          ),
         ),
       ),
     );

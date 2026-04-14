@@ -8,7 +8,7 @@ import cloudinary
 import cloudinary.utils
 import firebase_admin
 from firebase_admin import firestore
-from main import verify_firebase_token
+from auth_dependency import verify_firebase_token
 
 router = APIRouter()
 

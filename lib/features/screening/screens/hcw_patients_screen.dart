@@ -7,9 +7,10 @@ import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/child_card.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
+import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 
-/// HCW Patients list.
+/// HCW Patients list — sorted by risk level descending (High first).
 class HcwPatientsScreen extends ConsumerStatefulWidget {
   const HcwPatientsScreen({super.key});
 
@@ -19,8 +20,24 @@ class HcwPatientsScreen extends ConsumerStatefulWidget {
 
 class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
   String _searchQuery = '';
-  String _filterRisk = 'all'; // all, high, medium, low
-  bool _showRecentOnly = false;
+  String _filterRisk = 'all'; // all, high, medium, low, recent
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Risk priority for sorting: high=0, medium=1, low=2
+  int _riskPriority(String riskLevel) {
+    switch (riskLevel) {
+      case 'high': return 0;
+      case 'medium': return 1;
+      case 'low': return 2;
+      default: return 3;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +51,16 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
           icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary),
           onPressed: () => context.go(Routes.hcwDashboard),
         ),
-        title: Text('My Patients', style: HearTechTextStyles.sectionHeader()),
+        title: childrenAsync.when(
+          loading: () => Text('My Patients', style: HearTechTextStyles.sectionHeader()),
+          error: (_, _) => Text('My Patients', style: HearTechTextStyles.sectionHeader()),
+          data: (children) => Column(
+            children: [
+              Text('My Patients', style: HearTechTextStyles.sectionHeader()),
+              Text('${children.length} patients', style: HearTechTextStyles.caption()),
+            ],
+          ),
+        ),
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton(
@@ -50,6 +76,7 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
             child: Column(
               children: [
                 HearTechInputField(
+                  controller: _searchCtrl,
                   label: 'Search patients...',
                   prefixIcon: Icons.search,
                   onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
@@ -58,45 +85,26 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: [
-                      Padding(
+                    children: ['all', 'high', 'medium', 'low', 'recent'].map((chip) {
+                      final selected = _filterRisk == chip;
+                      final label = chip == 'all' ? 'All'
+                          : chip == 'recent' ? 'Recent'
+                          : '${chip[0].toUpperCase()}${chip.substring(1)} Risk';
+                      return Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: const Text('Recent'),
-                          selected: _showRecentOnly,
-                          selectedColor: HearTechColors.deepTeal.withValues(alpha: 0.2),
-                          checkmarkColor: HearTechColors.deepTeal,
+                        child: ChoiceChip(
+                          label: Text(label),
+                          selected: selected,
+                          selectedColor: HearTechColors.deepTeal,
+                          backgroundColor: HearTechColors.paleTeal,
                           labelStyle: TextStyle(
-                            color: _showRecentOnly ? HearTechColors.deepTeal : HearTechColors.textPrimary,
-                            fontWeight: _showRecentOnly ? FontWeight.w700 : FontWeight.w400,
+                            color: selected ? HearTechColors.white : HearTechColors.deepTeal,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                           ),
-                          onSelected: (v) => setState(() => _showRecentOnly = v),
+                          onSelected: (_) => setState(() => _filterRisk = chip),
                         ),
-                      ),
-                      Container(width: 1, height: 24, color: HearTechColors.textSecondary.withValues(alpha: 0.3), margin: const EdgeInsets.only(right: 8)),
-                      ...['all', 'high', 'medium', 'low'].map((risk) {
-                        final selected = _filterRisk == risk;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(risk == 'all' ? 'All' : risk[0].toUpperCase() + risk.substring(1)),
-                            selected: selected,
-                            selectedColor: risk == 'high'
-                                ? HearTechColors.coralRed
-                                : risk == 'medium'
-                                    ? HearTechColors.warmOrange
-                                    : risk == 'low'
-                                        ? HearTechColors.green
-                                        : HearTechColors.deepTeal,
-                            labelStyle: TextStyle(
-                              color: selected ? HearTechColors.white : HearTechColors.textPrimary,
-                              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-                            ),
-                            onSelected: (_) => setState(() => _filterRisk = risk),
-                          ),
-                        );
-                      }),
-                    ],
+                      );
+                    }).toList(),
                   ),
                 ),
               ],
@@ -111,26 +119,52 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (children) {
                 var filtered = children.where((c) {
-                  if (_filterRisk != 'all' && c.riskLevel != _filterRisk) return false;
-                  if (_searchQuery.isNotEmpty && !c.name.toLowerCase().contains(_searchQuery)) return false;
-                  if (_showRecentOnly) {
-                    final isRecent = c.lastUpdatedAt.isAfter(DateTime.now().subtract(const Duration(days: 7)));
+                  // Risk filter
+                  if (_filterRisk == 'high' && c.riskLevel != 'high') return false;
+                  if (_filterRisk == 'medium' && c.riskLevel != 'medium') return false;
+                  if (_filterRisk == 'low' && c.riskLevel != 'low') return false;
+                  // Recent filter: screened in last 7 days
+                  if (_filterRisk == 'recent') {
+                    final isRecent = c.lastScreeningDate != null &&
+                        c.lastScreeningDate!.isAfter(DateTime.now().subtract(const Duration(days: 7)));
                     if (!isRecent) return false;
                   }
+                  // Search filter
+                  if (_searchQuery.isNotEmpty && !c.name.toLowerCase().contains(_searchQuery)) return false;
                   return true;
                 }).toList();
 
-                filtered.sort((a, b) => b.lastUpdatedAt.compareTo(a.lastUpdatedAt));
+                // Default sort: risk level descending (High first)
+                filtered.sort((a, b) {
+                  final riskCmp = _riskPriority(a.riskLevel).compareTo(_riskPriority(b.riskLevel));
+                  if (riskCmp != 0) return riskCmp;
+                  return b.lastUpdatedAt.compareTo(a.lastUpdatedAt);
+                });
 
                 if (filtered.isEmpty) {
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.search_off, size: 48, color: HearTechColors.textSecondary.withValues(alpha: 0.5)),
-                        const SizedBox(height: 12),
-                        Text('No patients found', style: HearTechTextStyles.subtitle()),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.child_care, size: 56, color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
+                          const SizedBox(height: 12),
+                          Text('No patients yet', style: HearTechTextStyles.subtitle()),
+                          const SizedBox(height: 4),
+                          Text('Start a screening to add your first patient.',
+                              style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: 200,
+                            child: HearTechButton(
+                              label: 'Start Screening',
+                              icon: Icons.add,
+                              onPressed: () => context.go(Routes.hcwNewScreening),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }

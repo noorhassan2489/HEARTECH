@@ -53,6 +53,7 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
 
   // Step 2: Questions & answers
   final List<ScreeningAnswer> _answers = [];
+  String? _selectedAnswer; // Tracks current question's selected response
 
   // Step 3: Clinical note
   final _noteCtrl = TextEditingController();
@@ -132,6 +133,7 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
       questionText: _questions[_questionIndex]['q'],
       answer: answer,
     ));
+    _selectedAnswer = null;
 
     if (_questionIndex < _questions.length - 1) {
       setState(() => _questionIndex++);
@@ -144,7 +146,10 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
   void _goBack() {
     if (_questionIndex > 0) {
       _answers.removeLast();
-      setState(() => _questionIndex--);
+      setState(() {
+        _questionIndex--;
+        _selectedAnswer = null;
+      });
     } else {
       setState(() => _step = 0);
     }
@@ -174,6 +179,14 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
         answers: apiAnswers,
         ageBracket: _computeAgeBracket(),
         conductorRole: 'hcw',
+        childMetadata: {
+          'medicalHistory': {
+            'prematureBirth': _premature,
+            'nicuAdmission': _nicu,
+            'familyHistoryHearingLoss': _familyHistory,
+            'earInfectionCount': _earInfections,
+          },
+        },
       );
       
       if (mounted) {
@@ -260,7 +273,7 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
         handoverCode: HandoverCode(
           code: code,
           createdAt: now,
-          expiresAt: now.add(const Duration(days: 7)),
+          expiresAt: now.add(const Duration(hours: 24)),
         ),
       );
       await fs.setChild(child);
@@ -397,6 +410,30 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
           ),
           const SizedBox(height: 24),
 
+          // Info card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: HearTechColors.paleTeal,
+              borderRadius: HearTechDecorations.cardBorderRadius,
+              border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, size: 18, color: HearTechColors.deepTeal),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'No profile will be created until the screening is complete.',
+                    style: HearTechTextStyles.caption(color: HearTechColors.deepTeal),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           HearTechInputField(controller: _nameCtrl, label: "Child's Full Name", prefixIcon: Icons.child_care),
           const SizedBox(height: 16),
 
@@ -495,6 +532,7 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
   Widget _buildStep2Questionnaire() {
     final q = _questions[_questionIndex];
     final isClinical = q['clinical'] as bool;
+    final isLastQuestion = _questionIndex == _questions.length - 1;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -526,34 +564,71 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
           const SizedBox(height: 24),
 
           Expanded(
-            child: Center(
-              child: Text(q['q'] as String, style: HearTechTextStyles.screenTitle(),
-                  textAlign: TextAlign.center)
-                  .animate().fadeIn(duration: 200.ms),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  Text(q['q'] as String, style: HearTechTextStyles.screenTitle(),
+                      textAlign: TextAlign.center)
+                      .animate().fadeIn(duration: 200.ms),
+                  const SizedBox(height: 24),
+
+                  // 4 response cards — select, don't auto-advance
+                  _SelectableResponseCard(
+                    label: 'Yes', color: HearTechColors.green,
+                    icon: Icons.check_circle_outline,
+                    selected: _selectedAnswer == 'yes',
+                    onTap: () => setState(() => _selectedAnswer = 'yes'),
+                  ),
+                  const SizedBox(height: 10),
+                  _SelectableResponseCard(
+                    label: 'Partial', color: HearTechColors.warmOrange,
+                    icon: Icons.change_history,
+                    selected: _selectedAnswer == 'partial',
+                    onTap: () => setState(() => _selectedAnswer = 'partial'),
+                  ),
+                  const SizedBox(height: 10),
+                  _SelectableResponseCard(
+                    label: 'No', color: HearTechColors.coralRed,
+                    icon: Icons.cancel_outlined,
+                    selected: _selectedAnswer == 'no',
+                    onTap: () => setState(() => _selectedAnswer = 'no'),
+                  ),
+                  const SizedBox(height: 10),
+                  _SelectableResponseCard(
+                    label: 'Not Sure', color: HearTechColors.textSecondary,
+                    icon: Icons.help_outline,
+                    selected: _selectedAnswer == 'not_sure',
+                    onTap: () => setState(() => _selectedAnswer = 'not_sure'),
+                  ),
+                ],
+              ),
             ),
           ),
-
-          // 4 response cards
-          _ResponseCard(label: 'YES', color: HearTechColors.green, icon: Icons.check_circle_outline,
-              onTap: () => _answerQuestion('yes')),
-          const SizedBox(height: 10),
-          _ResponseCard(label: 'PARTIAL', color: HearTechColors.warmOrange, icon: Icons.change_history,
-              onTap: () => _answerQuestion('partial')),
-          const SizedBox(height: 10),
-          _ResponseCard(label: 'NO', color: HearTechColors.coralRed, icon: Icons.cancel_outlined,
-              onTap: () => _answerQuestion('no')),
-          const SizedBox(height: 10),
-          _ResponseCard(label: 'NOT SURE', color: HearTechColors.textSecondary, icon: Icons.help_outline,
-              onTap: () => _answerQuestion('not_sure')),
           const SizedBox(height: 16),
 
-          // Back button
-          if (_questionIndex > 0)
-            TextButton.icon(
-              onPressed: _goBack,
-              icon: const Icon(Icons.arrow_back, size: 18),
-              label: const Text('Previous Question'),
-            ),
+          // Navigation buttons
+          Row(
+            children: [
+              if (_questionIndex > 0)
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: _goBack,
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                    label: const Text('Back'),
+                  ),
+                ),
+              if (_questionIndex > 0) const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: HearTechButton(
+                  label: isLastQuestion ? 'Submit and Analyse' : 'Next',
+                  onPressed: _selectedAnswer != null
+                      ? () => _answerQuestion(_selectedAnswer!)
+                      : null,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
         ],
       ),
@@ -798,7 +873,7 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
                   children: [
                     const Icon(Icons.timer_outlined, size: 16, color: HearTechColors.textSecondary),
                     const SizedBox(width: 4),
-                    Text('Expires in 7 days', style: HearTechTextStyles.caption()),
+                    Text('Expires in 24 hours', style: HearTechTextStyles.caption()),
                   ],
                 ),
               ],
@@ -881,12 +956,13 @@ class _MedToggle extends StatelessWidget {
   }
 }
 
-class _ResponseCard extends StatelessWidget {
+class _SelectableResponseCard extends StatelessWidget {
   final String label;
   final Color color;
   final IconData icon;
+  final bool selected;
   final VoidCallback onTap;
-  const _ResponseCard({required this.label, required this.color, required this.icon, required this.onTap});
+  const _SelectableResponseCard({required this.label, required this.color, required this.icon, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -896,21 +972,29 @@ class _ResponseCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+          color: color.withValues(alpha: selected ? 0.15 : 0.06),
           borderRadius: HearTechDecorations.cardBorderRadius,
-          border: Border.all(color: color.withValues(alpha: 0.25)),
+          border: Border.all(
+            color: selected ? HearTechColors.deepTeal : color.withValues(alpha: 0.2),
+            width: selected ? 2 : 1,
+          ),
         ),
         child: Row(
           children: [
             Icon(icon, color: color, size: 24),
             const SizedBox(width: 14),
-            Text(label, style: HearTechTextStyles.subtitle(color: color).copyWith(fontWeight: FontWeight.w700)),
+            Expanded(
+              child: Text(label, style: HearTechTextStyles.subtitle(color: color).copyWith(fontWeight: FontWeight.w700)),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle, color: HearTechColors.deepTeal, size: 22),
           ],
         ),
       ),
     );
   }
 }
+
 
 class _RecommendationTile extends StatelessWidget {
   final IconData icon;
