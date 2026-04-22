@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
@@ -35,37 +36,66 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      debugPrint('[HearTech] Parent login: starting sign in...');
       final authService = ref.read(firebaseAuthServiceProvider);
       await authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
       );
-      if (mounted) {
-        final firestoreService = ref.read(firestoreServiceProvider);
-        final user = authService.currentUser;
-        if (user != null) {
-          final profile = await firestoreService.getUser(user.uid);
-          if (profile != null && mounted) {
-            if (profile.role != 'parent') {
-              await authService.signOut();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
-                    backgroundColor: HearTechColors.coralRed,
-                  ),
-                );
-              }
-              return;
-            }
-            await authService.registerOneSignal(user.uid, profile.role);
-            if (mounted) context.go(Routes.parentDashboard);
-          } else if (mounted) {
-            context.go(Routes.parentRegister);
-          }
+      debugPrint('[HearTech] Parent login: Firebase auth succeeded');
+
+      if (!mounted) return;
+
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('[HearTech] Parent login: currentUser is null after sign in!');
+        return;
+      }
+
+      debugPrint('[HearTech] Parent login: uid=${user.uid}, fetching Firestore profile...');
+      final firestoreService = ref.read(firestoreServiceProvider);
+      final profile = await firestoreService.getUser(user.uid);
+
+      if (!mounted) return;
+
+      if (profile == null) {
+        // Profile doesn't exist in Firestore yet — still go to dashboard
+        // The dashboard handles empty state gracefully
+        debugPrint('[HearTech] Parent login: no Firestore profile, going to dashboard anyway');
+        context.go(Routes.parentDashboard);
+        return;
+      }
+
+      debugPrint('[HearTech] Parent login: profile found, role=${profile.role}');
+
+      if (profile.role != 'parent') {
+        await authService.signOut();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
+              backgroundColor: HearTechColors.coralRed,
+            ),
+          );
         }
+        return;
+      }
+
+      await authService.registerOneSignal(user.uid, profile.role);
+      debugPrint('[HearTech] Parent login: navigating to parent dashboard');
+      if (mounted) context.go(Routes.parentDashboard);
+    } on FirebaseException catch (e) {
+      debugPrint('[HearTech] Parent login: FirebaseException code=${e.code}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_getErrorMessage(e.code)),
+            backgroundColor: HearTechColors.coralRed,
+          ),
+        );
       }
     } catch (e) {
+      debugPrint('[HearTech] Parent login: unexpected error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -103,7 +133,9 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
           await authService.registerOneSignal(result.user!.uid, profile.role);
           if (mounted) context.go(Routes.parentDashboard);
         } else if (mounted) {
-          context.go(Routes.parentRegister);
+          // No profile yet — go to dashboard anyway, it handles empty state
+          debugPrint('[HearTech] Google login: no Firestore profile, going to dashboard');
+          context.go(Routes.parentDashboard);
         }
       }
     } catch (e) {
@@ -183,9 +215,30 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
   }
 
   String _getErrorMessage(String error) {
-    if (error.contains('user-not-found')) return 'No account found.';
-    if (error.contains('wrong-password')) return 'Incorrect password.';
-    if (error.contains('invalid-email')) return 'Invalid email.';
+    // Handle FirebaseAuthException.code directly
+    switch (error) {
+      case 'user-not-found':
+        return 'No account found with this email. Please create a profile first.';
+      case 'wrong-password':
+        return 'Incorrect password. Please try again.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'invalid-credential':
+        return 'Incorrect email or password. Please try again.';
+      case 'user-disabled':
+        return 'This account has been disabled. Contact support.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a few minutes.';
+      case 'network-request-failed':
+        return 'No internet connection. Please check your network.';
+    }
+    // Fallback: check error string for codes (from e.toString())
+    if (error.contains('user-not-found')) return 'No account found with this email.';
+    if (error.contains('wrong-password')) return 'Incorrect password. Please try again.';
+    if (error.contains('invalid-credential')) return 'Incorrect email or password. Please try again.';
+    if (error.contains('invalid-email')) return 'Please enter a valid email address.';
+    if (error.contains('network-request-failed')) return 'No internet connection.';
+    if (error.contains('too-many-requests')) return 'Too many attempts. Please wait.';
     return 'Login failed. Please try again.';
   }
 

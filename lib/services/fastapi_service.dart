@@ -125,14 +125,25 @@ class FastApiService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Claim a child profile using handover code. Sends parentUid.
+  /// Handles DioException so error responses from the server are surfaced
+  /// as Map data rather than thrown exceptions.
   Future<Map<String, dynamic>> claimProfile({
     required String code,
   }) async {
-    final response = await _dio.post('/api/claim-profile', data: {
-      'code': code,
-      'parentUid': _currentUid,
-    });
-    return response.data;
+    try {
+      final response = await _dio.post('/api/claim-profile', data: {
+        'code': code.toUpperCase(),
+        'parentUid': _currentUid,
+      });
+      return response.data;
+    } on DioException catch (e) {
+      // If the server returned a response body (e.g. {"error": "invalid"}),
+      // surface it so the UI can read the error key.
+      if (e.response?.data is Map<String, dynamic>) {
+        return e.response!.data as Map<String, dynamic>;
+      }
+      return {'error': 'network_error'};
+    }
   }
 
   Future<Map<String, dynamic>> regenerateHandoverCode({
@@ -181,6 +192,7 @@ class FastApiService {
     final response = await _dio.post('/api/respond-invite', data: {
       'inviteId': inviteId,
       'action': action,
+      'teacherUid': _currentUid,
     });
     return response.data;
   }

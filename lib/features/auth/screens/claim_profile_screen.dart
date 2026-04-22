@@ -96,6 +96,9 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
           case 'rate_limited':
             msg = 'Too many attempts. Please wait a few minutes before trying again.';
             break;
+          case 'network_error':
+            msg = 'Could not connect to the server. Check your internet and try again.';
+            break;
           default:
             msg = 'Something went wrong. Please try again.';
         }

@@ -1269,10 +1269,29 @@ class _TeacherInfoCardState extends ConsumerState<_TeacherInfoCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.canLink) return const SizedBox.shrink();
-
     if (widget.teacherIds.isEmpty) {
-      // Purple card with graduation cap for Phase 4 spec
+      // Show invite button if child is 3+, otherwise explain why
+      if (!widget.canLink) {
+        // Child is under 3 — show info message
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: HearTechColors.purple.withValues(alpha: 0.05),
+            borderRadius: HearTechDecorations.cardBorderRadius,
+            border: Border.all(color: HearTechColors.purple.withValues(alpha: 0.15)),
+          ),
+          child: Column(children: [
+            const Icon(Icons.school_outlined, size: 32, color: HearTechColors.textSecondary),
+            const SizedBox(height: 10),
+            Text('Teacher linking is available when your child turns 3.',
+                style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+                textAlign: TextAlign.center),
+          ]),
+        ).animate().fadeIn(duration: 300.ms);
+      }
+
+      // Child is 3+ — show invite button
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),

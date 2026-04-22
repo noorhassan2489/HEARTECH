@@ -15,6 +15,7 @@ import 'package:heartech/features/auth/screens/teacher_registration_screen.dart'
 import 'package:heartech/features/auth/screens/claim_profile_screen.dart';
 import 'package:heartech/features/dashboard/screens/hcw_dashboard_screen.dart';
 import 'package:heartech/features/dashboard/screens/parent_dashboard_screen.dart';
+import 'package:heartech/features/dashboard/screens/parent_children_screen.dart';
 import 'package:heartech/features/dashboard/screens/teacher_dashboard_screen.dart';
 import 'package:heartech/features/screening/screens/hcw_new_screening_screen.dart';
 import 'package:heartech/features/screening/screens/hcw_patients_screen.dart';
@@ -34,6 +35,7 @@ import 'package:heartech/features/notifications/screens/notifications_screen.dar
 import 'package:heartech/features/speech/screens/speech_games_screen.dart';
 import 'package:heartech/features/speech/screens/show_and_tell_screen.dart';
 import 'package:heartech/features/speech/screens/ling_six_screen.dart';
+import 'package:heartech/features/teacher_dashboard/screens/child_profile_teacher_screen.dart';
 
 // ============================================================================
 // ROUTE NAMES
@@ -137,13 +139,34 @@ final routerProvider = Provider<GoRouter>((ref) {
     debugLogDiagnostics: true,
     observers: [ref.read(analyticsServiceProvider).getObserver()],
     redirect: (context, state) {
+      final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+      final loc = state.matchedLocation;
+
+      // Auth pages that don't require login
       final authPaths = [
         Routes.splash, Routes.roleSelect,
         Routes.parentLogin, Routes.hcwLogin, Routes.teacherLogin,
         Routes.parentRegister, Routes.hcwRegister, Routes.teacherRegister,
       ];
-      if (authPaths.contains(state.matchedLocation)) return null;
-      if (FirebaseAuth.instance.currentUser == null) return Routes.splash;
+      final isAuthPage = authPaths.contains(loc);
+
+      // Not logged in
+      if (!isLoggedIn) {
+        // Allow auth pages
+        if (isAuthPage) return null;
+        // Block everything else → splash
+        return Routes.splash;
+      }
+
+      // Logged in — allow navigation to role-specific pages
+      // (Login screen handles manual routing after fetching profile)
+      if (isAuthPage && loc != Routes.splash) {
+        // Already logged in but on a login/register page
+        // This can happen on browser back button etc.
+        // Don't redirect — the login screen will handle it
+        return null;
+      }
+
       return null;
     },
     routes: [
@@ -172,7 +195,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Parent ──────────────────────────────────────────────────────────
       _route(Routes.parentDashboard, (_) => const ParentDashboardScreen()),
-      _route(Routes.parentChildren, (_) => const ParentDashboardScreen()),
+      _route(Routes.parentChildren, (_) => const ParentChildrenScreen()),
       _route(Routes.parentSpeechGames, (_) => const SpeechGamesScreen()),
       _route(Routes.parentNotifications, (_) => const NotificationsScreen(role: 'parent')),
       _route(Routes.parentProfile, (_) => const ParentProfileScreen()),
@@ -189,8 +212,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       _route(Routes.teacherNotifications, (_) => const NotificationsScreen(role: 'teacher')),
       _route(Routes.teacherProfile, (_) => const TeacherProfileScreen()),
       _route(Routes.teacherInvites, (_) => const PendingInvitesScreen()),
-      _route(Routes.teacherChildProfile, (s) => ChildProfileScreen(
-          childId: s.pathParameters['childId']!, viewerRole: 'teacher')),
+      _route(Routes.teacherChildProfile, (s) => ChildProfileTeacherScreen(
+          childId: s.pathParameters['childId']!)),
       _route(Routes.teacherObservation, (_) => const TeacherObservationScreen()),
 
       // ── Speech ──────────────────────────────────────────────────────────

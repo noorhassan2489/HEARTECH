@@ -41,6 +41,7 @@ class InviteTeacherRequest(BaseModel):
 class RespondInviteRequest(BaseModel):
     inviteId: str
     action: str  # "accept" or "decline"
+    teacherUid: str = ""
 
 
 class CancelInviteRequest(BaseModel):
@@ -132,7 +133,13 @@ async def invite_teacher(request: InviteTeacherRequest):
 
 @router.post("/respond-invite")
 async def respond_invite(request: RespondInviteRequest):
-    """Accept or decline a teacher invite."""
+    """Accept or decline a teacher invite.
+    
+    Validates:
+    - Invite exists and is pending
+    - teacherUid matches the invite's teacherUid
+    - Invite is not expired
+    """
     invite_ref = db.collection("invites").document(request.inviteId)
     invite_doc = invite_ref.get()
 
@@ -144,8 +151,21 @@ async def respond_invite(request: RespondInviteRequest):
     if invite_data.get("status") != "pending":
         return {"error": "invite_not_pending"}
 
+    # Verify teacher identity if provided
+    stored_teacher_uid = invite_data.get("teacherUid", "")
+    if request.teacherUid and stored_teacher_uid != request.teacherUid:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Check expiry
+    expires_at = invite_data.get("expiresAt")
+    if expires_at:
+        if hasattr(expires_at, 'timestamp'):
+            if datetime.now().timestamp() > expires_at.timestamp():
+                invite_ref.update({"status": "expired"})
+                return {"error": "invite_expired"}
+
     child_id = invite_data["childId"]
-    teacher_uid = invite_data["teacherUid"]
+    teacher_uid = stored_teacher_uid
     parent_uid = invite_data.get("parentUid", "")
     child_name = invite_data.get("childName", "")
 
@@ -314,7 +334,11 @@ async def remove_teacher(request: RemoveTeacherRequest):
         raise HTTPException(status_code=404, detail="Child not found")
 
     child_data = child_doc.to_dict()
-    if child_data.get("parentId") != request.parentUid:
+    is_parent = child_data.get("parentId") == request.parentUid
+    is_teacher_self = request.parentUid == request.teacherUid
+    teacher_in_list = request.teacherUid in (child_data.get("teacherIds") or [])
+
+    if not is_parent and not (is_teacher_self and teacher_in_list):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     batch = db.batch()
@@ -333,23 +357,35 @@ async def remove_teacher(request: RemoveTeacherRequest):
     batch.commit()
 
     child_name = child_data.get("name", "")
+    parent_id = child_data.get("parentId", "")
 
-    # Fire TCH-06: Parent removed teacher access → to Teacher (push)
-    _fire_notification(
-        uid=request.teacherUid,
-        notif_type="TCH-06",
-        title="Access Removed",
-        body=f"A parent has removed your access to {child_name}'s profile.",
-        related_child_id=request.childId,
-    )
+    if is_teacher_self:
+        # Teacher removed themselves — notify parent
+        if parent_id:
+            _fire_notification(
+                uid=parent_id,
+                notif_type="PAR-10",
+                title="Teacher Unlinked",
+                body=f"The teacher has unlinked themselves from {child_name}'s profile.",
+                related_child_id=request.childId,
+            )
+    else:
+        # Parent removed teacher — notify teacher
+        _fire_notification(
+            uid=request.teacherUid,
+            notif_type="TCH-06",
+            title="Access Removed",
+            body=f"A parent has removed your access to {child_name}'s profile.",
+            related_child_id=request.childId,
+        )
 
-    # Fire PAR-10: Teacher unlinked → to Parent (IN-APP ONLY, no push)
-    _fire_notification(
-        uid=request.parentUid,
-        notif_type="PAR-10",
-        title="Teacher Unlinked",
-        body=f"The teacher has been removed from {child_name}'s profile.",
-        related_child_id=request.childId,
-    )
+        # Fire PAR-10: Teacher unlinked → to Parent (IN-APP ONLY, no push)
+        _fire_notification(
+            uid=request.parentUid,
+            notif_type="PAR-10",
+            title="Teacher Unlinked",
+            body=f"The teacher has been removed from {child_name}'s profile.",
+            related_child_id=request.childId,
+        )
 
     return {"success": True}

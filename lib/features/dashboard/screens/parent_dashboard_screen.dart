@@ -181,7 +181,7 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
         Text('Your Children', style: HearTechTextStyles.sectionHeader()),
         const SizedBox(height: 12),
         SizedBox(
-          height: 170,
+          height: 195,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: children.length,
@@ -195,15 +195,16 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
                 ),
                 child: Container(
                   width: 160,
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: HearTechColors.white,
                     borderRadius: HearTechDecorations.cardBorderRadius,
                     boxShadow: HearTechDecorations.cardShadow,
                   ),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      AvatarCircle(name: child.name, photoUrl: child.profilePhotoUrl, radius: 30),
+                      AvatarCircle(name: child.name, photoUrl: child.profilePhotoUrl, radius: 26),
                       const SizedBox(height: 8),
                       Text(child.name, style: HearTechTextStyles.subtitle(),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
