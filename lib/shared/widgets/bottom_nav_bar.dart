@@ -92,7 +92,6 @@ class HearTechBottomNavBar extends StatelessWidget {
         return const [
           _NavItem(Icons.home_outlined, Icons.home, 'Home'),
           _NavItem(Icons.people_outline, Icons.people, 'Patients'),
-          _NavItem(Icons.notifications_outlined, Icons.notifications, 'Alerts'),
           _NavItem(Icons.person_outline, Icons.person, 'Profile'),
         ];
       case 'parent':
@@ -100,14 +99,12 @@ class HearTechBottomNavBar extends StatelessWidget {
           _NavItem(Icons.home_outlined, Icons.home, 'Home'),
           _NavItem(Icons.child_care_outlined, Icons.child_care, 'Children'),
           _NavItem(Icons.mic_outlined, Icons.mic, 'Speech'),
-          _NavItem(Icons.notifications_outlined, Icons.notifications, 'Alerts'),
           _NavItem(Icons.person_outline, Icons.person, 'Profile'),
         ];
       case 'teacher':
         return const [
           _NavItem(Icons.home_outlined, Icons.home, 'Home'),
           _NavItem(Icons.school_outlined, Icons.school, 'My Class'),
-          _NavItem(Icons.notifications_outlined, Icons.notifications, 'Notifications'),
           _NavItem(Icons.person_outline, Icons.person, 'Profile'),
         ];
       default:

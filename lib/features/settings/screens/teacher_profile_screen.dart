@@ -26,23 +26,39 @@ class TeacherProfileScreen extends ConsumerWidget {
         return Scaffold(
           backgroundColor: HearTechColors.background,
           appBar: AppBar(
-            backgroundColor: Colors.transparent, elevation: 0,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary),
+              icon: const Icon(
+                Icons.arrow_back,
+                color: HearTechColors.textPrimary,
+              ),
               onPressed: () => context.go(Routes.teacherDashboard),
             ),
-            title: Text('My Profile', style: HearTechTextStyles.sectionHeader()),
+            title: Text(
+              'My Profile',
+              style: HearTechTextStyles.sectionHeader(),
+            ),
             centerTitle: true,
           ),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                AvatarCircle(name: user.name, photoUrl: user.profilePhotoUrl, radius: 50),
+                AvatarCircle(
+                  name: user.name,
+                  photoUrl: user.profilePhotoUrl,
+                  radius: 50,
+                ),
                 const SizedBox(height: 16),
                 Text(user.name, style: HearTechTextStyles.screenTitle()),
                 const SizedBox(height: 4),
-                Text('Teacher Account', style: HearTechTextStyles.caption(color: HearTechColors.purple)),
+                Text(
+                  'Teacher Account',
+                  style: HearTechTextStyles.caption(
+                    color: HearTechColors.purple,
+                  ),
+                ),
                 const SizedBox(height: 32),
 
                 Container(
@@ -52,16 +68,33 @@ class TeacherProfileScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Profile Information', style: HearTechTextStyles.sectionHeader()),
+                      Text(
+                        'Profile Information',
+                        style: HearTechTextStyles.sectionHeader(),
+                      ),
                       const SizedBox(height: 16),
                       _infoRow(Icons.email_outlined, 'Email', user.email),
                       _infoRow(Icons.wc, 'Gender', user.gender ?? '-'),
-                      _infoRow(Icons.school_outlined, 'School', user.schoolName ?? '-'),
+                      _infoRow(
+                        Icons.school_outlined,
+                        'School',
+                        user.schoolName ?? '-',
+                      ),
                       _infoRow(Icons.location_city, 'City', user.city ?? '-'),
-                      _infoRow(Icons.timeline, 'Experience',
-                          user.yearsExperience != null ? '${user.yearsExperience} years' : '-'),
-                      if (user.gradeLevelsTaught != null && user.gradeLevelsTaught!.isNotEmpty)
-                        _infoRow(Icons.grade, 'Grades', user.gradeLevelsTaught!.join(', ')),
+                      _infoRow(
+                        Icons.timeline,
+                        'Experience',
+                        user.yearsExperience != null
+                            ? '${user.yearsExperience} years'
+                            : '-',
+                      ),
+                      if (user.gradeLevelsTaught != null &&
+                          user.gradeLevelsTaught!.isNotEmpty)
+                        _infoRow(
+                          Icons.grade,
+                          'Grades',
+                          user.gradeLevelsTaught!.join(', '),
+                        ),
                     ],
                   ),
                 ),
@@ -72,13 +105,23 @@ class TeacherProfileScreen extends ConsumerWidget {
                   decoration: HearTechDecorations.cardDecoration,
                   child: Column(
                     children: [
-                      _settingsTile(Icons.edit_outlined, 'Edit Profile',
-                          () => _showEditProfile(context, ref, user)),
+                      _settingsTile(
+                        Icons.edit_outlined,
+                        'Edit Profile',
+                        () => _showEditProfile(context, ref, user),
+                      ),
                       const Divider(height: 1),
-                      _settingsTile(Icons.notifications_outlined, 'Notifications',
-                          () => context.go(Routes.notificationPrefs)),
+                      _settingsTile(
+                        Icons.notifications_outlined,
+                        'Notification Preferences',
+                        () => context.push(Routes.notificationPrefs),
+                      ),
                       const Divider(height: 1),
-                      _settingsTile(Icons.info_outline, 'About HearTech', () {}),
+                      _settingsTile(
+                        Icons.info_outline,
+                        'About HearTech',
+                        () => context.push(Routes.about),
+                      ),
                     ],
                   ),
                 ),
@@ -90,7 +133,9 @@ class TeacherProfileScreen extends ConsumerWidget {
                     await ref.read(firebaseAuthServiceProvider).signOut();
                     if (context.mounted) context.go(Routes.splash);
                   },
-                  backgroundColor: HearTechColors.coralRed.withValues(alpha: 0.1),
+                  backgroundColor: HearTechColors.coralRed.withValues(
+                    alpha: 0.1,
+                  ),
                   textColor: HearTechColors.coralRed,
                 ),
               ],
@@ -104,12 +149,17 @@ class TeacherProfileScreen extends ConsumerWidget {
   Widget _infoRow(IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(children: [
-        Icon(icon, size: 20, color: HearTechColors.purple),
-        const SizedBox(width: 12),
-        SizedBox(width: 80, child: Text(label, style: HearTechTextStyles.caption())),
-        Expanded(child: Text(value, style: HearTechTextStyles.body())),
-      ]),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: HearTechColors.purple),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 80,
+            child: Text(label, style: HearTechTextStyles.caption()),
+          ),
+          Expanded(child: Text(value, style: HearTechTextStyles.body())),
+        ],
+      ),
     );
   }
 
@@ -117,7 +167,10 @@ class TeacherProfileScreen extends ConsumerWidget {
     return ListTile(
       leading: Icon(icon, color: HearTechColors.purple),
       title: Text(title, style: HearTechTextStyles.body()),
-      trailing: const Icon(Icons.chevron_right, color: HearTechColors.textSecondary),
+      trailing: const Icon(
+        Icons.chevron_right,
+        color: HearTechColors.textSecondary,
+      ),
       onTap: onTap,
     );
   }
@@ -131,50 +184,84 @@ class TeacherProfileScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: HearTechColors.background,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-        child: SingleChildScrollView(child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(
-                color: HearTechColors.textSecondary.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 16),
-            Text('Edit Profile', style: HearTechTextStyles.screenTitle()),
-            const SizedBox(height: 20),
-            _editField(nameCtrl, 'Full Name'),
-            _editField(schoolCtrl, 'School Name'),
-            _editField(cityCtrl, 'City'),
-            const SizedBox(height: 16),
-            HearTechButton(label: 'Save Changes', onPressed: () async {
-              try {
-                await ref.read(firestoreServiceProvider).updateUser(user.uid, {
-                  'name': nameCtrl.text.trim(),
-                  'schoolName': schoolCtrl.text.trim(),
-                  'city': cityCtrl.text.trim(),
-                });
-                ref.invalidate(currentUserProfileProvider);
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Profile updated.'), backgroundColor: HearTechColors.green));
-                }
-              } catch (e) {
-                if (ctx.mounted) Navigator.pop(ctx);
-              }
-            }),
-          ],
-        )),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: HearTechColors.textSecondary.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Edit Profile', style: HearTechTextStyles.screenTitle()),
+              const SizedBox(height: 20),
+              _editField(nameCtrl, 'Full Name'),
+              _editField(schoolCtrl, 'School Name'),
+              _editField(cityCtrl, 'City'),
+              const SizedBox(height: 16),
+              HearTechButton(
+                label: 'Save Changes',
+                onPressed: () async {
+                  try {
+                    await ref
+                        .read(firestoreServiceProvider)
+                        .updateUser(user.uid, {
+                          'name': nameCtrl.text.trim(),
+                          'schoolName': schoolCtrl.text.trim(),
+                          'city': cityCtrl.text.trim(),
+                        });
+                    ref.invalidate(currentUserProfileProvider);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Profile updated.'),
+                          backgroundColor: HearTechColors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _editField(TextEditingController ctrl, String label) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
-    child: TextFormField(controller: ctrl, decoration: InputDecoration(
-      labelText: label, filled: true, fillColor: HearTechColors.paleTeal,
-      border: OutlineInputBorder(borderRadius: HearTechDecorations.inputBorderRadius, borderSide: BorderSide.none),
-    )),
+    child: TextFormField(
+      controller: ctrl,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: HearTechColors.paleTeal,
+        border: OutlineInputBorder(
+          borderRadius: HearTechDecorations.inputBorderRadius,
+          borderSide: BorderSide.none,
+        ),
+      ),
+    ),
   );
 }

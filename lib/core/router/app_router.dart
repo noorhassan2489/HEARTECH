@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:heartech/features/about/screens/about_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -78,6 +79,7 @@ class Routes {
   static const showAndTell = '/speech/show-and-tell/:childId';
   static const lingSix = '/speech/ling-six/:childId';
   static const notificationPrefs = '/settings/notification-prefs';
+  static const about = '/about';
 }
 
 // ============================================================================
@@ -224,6 +226,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── Settings ────────────────────────────────────────────────────────
       _route(Routes.notificationPrefs, (_) => const NotificationPrefsScreen()),
+      _route(Routes.about, (_) => const AboutScreen()),
     ],
   );
 });

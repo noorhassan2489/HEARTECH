@@ -15,7 +15,7 @@ import 'package:heartech/shared/widgets/bottom_nav_bar.dart';
 import 'package:intl/intl.dart';
 
 /// HCW Dashboard — greeting, stats, recent patients, quick actions.
-/// Bottom nav: Home | Patients | Notifications | Profile
+/// Bottom nav: Home | Patients | Profile
 class HcwDashboardScreen extends ConsumerStatefulWidget {
   const HcwDashboardScreen({super.key});
 
@@ -30,8 +30,7 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
     switch (index) {
       case 0: break; // already on home
       case 1: context.go(Routes.hcwPatients); break;
-      case 2: context.go(Routes.hcwNotifications); break;
-      case 3: context.go(Routes.hcwProfile); break;
+      case 2: context.go(Routes.hcwProfile); break;
     }
   }
 

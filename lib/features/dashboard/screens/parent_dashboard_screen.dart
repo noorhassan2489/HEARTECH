@@ -14,7 +14,7 @@ import 'package:heartech/shared/widgets/bottom_nav_bar.dart';
 import 'package:intl/intl.dart';
 
 /// Parent Dashboard — greeting, claim CTA or child cards, quick actions, tips.
-/// Bottom nav: Home | My Children | Speech Games | Notifications | Profile
+/// Bottom nav: Home | My Children | Speech Games | Profile
 class ParentDashboardScreen extends ConsumerStatefulWidget {
   const ParentDashboardScreen({super.key});
 
@@ -30,8 +30,7 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
       case 0: break;
       case 1: context.go(Routes.parentChildren); break;
       case 2: context.go(Routes.parentSpeechGames); break;
-      case 3: context.go(Routes.parentNotifications); break;
-      case 4: context.go(Routes.parentProfile); break;
+      case 3: context.go(Routes.parentProfile); break;
     }
   }
 

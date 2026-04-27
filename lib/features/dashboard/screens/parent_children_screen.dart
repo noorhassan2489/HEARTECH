@@ -22,8 +22,7 @@ class ParentChildrenScreen extends ConsumerWidget {
       case 0: context.go(Routes.parentDashboard); break;
       case 1: break; // already here
       case 2: context.go(Routes.parentSpeechGames); break;
-      case 3: context.go(Routes.parentNotifications); break;
-      case 4: context.go(Routes.parentProfile); break;
+      case 3: context.go(Routes.parentProfile); break;
     }
   }
 

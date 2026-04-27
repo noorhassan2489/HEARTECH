@@ -308,9 +308,12 @@ class FirestoreService {
         .collection(FirestorePaths.notifications(uid))
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => NotificationModel.fromJson(d.data()))
-            .toList());
+        .map((snap) => snap.docs.map((d) {
+              final data = d.data();
+              // Ensure notifId is always the Firestore document ID
+              data['notifId'] = d.id;
+              return NotificationModel.fromJson(data);
+            }).toList());
   }
 
   /// Count unread notifications.

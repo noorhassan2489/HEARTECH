@@ -180,7 +180,7 @@ class _ChildProfileScreenState extends ConsumerState<ChildProfileScreen>
       case 'Screenings': return _ScreeningsTab(childId: widget.childId, viewerRole: widget.viewerRole);
       case 'Referrals': return _ReferralsTab(childId: widget.childId, viewerRole: widget.viewerRole);
       case 'Notes': return _NotesTab(childId: widget.childId);
-      case 'Speech': return _SpeechTab(childId: widget.childId);
+      case 'Speech': return _SpeechTab(childId: widget.childId, viewerRole: widget.viewerRole);
       case 'Observations': return _ObservationsTab(childId: widget.childId);
       default: return const SizedBox.shrink();
     }
@@ -935,7 +935,8 @@ class _VisibilityChip extends StatelessWidget {
 
 class _SpeechTab extends ConsumerWidget {
   final String childId;
-  const _SpeechTab({required this.childId});
+  final String viewerRole;
+  const _SpeechTab({required this.childId, required this.viewerRole});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -948,58 +949,60 @@ class _SpeechTab extends ConsumerWidget {
         
         return Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              child: HearTechButton(
-                label: 'Start Speech Session',
-                icon: Icons.mic,
-                onPressed: () {
-                  showModalBottomSheet(
-                    context: context,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                    ),
-                    builder: (ctx) => Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Select Speech Game', style: HearTechTextStyles.sectionHeader()),
-                          const SizedBox(height: 20),
-                          ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(color: HearTechColors.paleTeal, borderRadius: BorderRadius.circular(12)),
-                              child: const Icon(Icons.record_voice_over, color: HearTechColors.deepTeal),
-                            ),
-                            title: Text('Show and Tell', style: HearTechTextStyles.subtitle()),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              context.go(Routes.showAndTell.replaceFirst(':childId', childId));
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(color: HearTechColors.purple.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                              child: const Icon(Icons.hearing, color: HearTechColors.purple),
-                            ),
-                            title: Text('Ling Six Test', style: HearTechTextStyles.subtitle()),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              context.go(Routes.lingSix.replaceFirst(':childId', childId));
-                            },
-                          ),
-                        ],
+            // Only parents and teachers can start speech sessions
+            if (viewerRole != 'hcw')
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                child: HearTechButton(
+                  label: 'Start Speech Session',
+                  icon: Icons.mic,
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                       ),
-                    ),
-                  );
-                },
+                      builder: (ctx) => Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Select Speech Game', style: HearTechTextStyles.sectionHeader()),
+                            const SizedBox(height: 20),
+                            ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(color: HearTechColors.paleTeal, borderRadius: BorderRadius.circular(12)),
+                                child: const Icon(Icons.record_voice_over, color: HearTechColors.deepTeal),
+                              ),
+                              title: Text('Show and Tell', style: HearTechTextStyles.subtitle()),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                context.go(Routes.showAndTell.replaceFirst(':childId', childId));
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(color: HearTechColors.purple.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                                child: const Icon(Icons.hearing, color: HearTechColors.purple),
+                              ),
+                              title: Text('Ling Six Test', style: HearTechTextStyles.subtitle()),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                context.go(Routes.lingSix.replaceFirst(':childId', childId));
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
             
             Expanded(
               child: logs.isEmpty

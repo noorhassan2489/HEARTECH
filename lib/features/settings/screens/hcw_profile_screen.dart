@@ -128,7 +128,7 @@ class HcwProfileScreen extends ConsumerWidget {
                       const Divider(height: 1),
                       _settingsTile(
                         Icons.info_outline, 'About HearTech',
-                        () {},
+                        () => context.push(Routes.about),
                       ),
                     ],
                   ),
