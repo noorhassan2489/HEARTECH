@@ -1,17 +1,20 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:heartech/core/theme/app_theme.dart';
-import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 import 'package:heartech/shared/models/speech_log_model.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import 'package:hive/hive.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
-/// Show & Tell speech game — 5 category word bank, pulsing recording ring,
-/// phonemes missed, clarity rating per word. Simulated speech analysis.
+/// Show & Tell speech game — category chips, Cloudinary/emoji images,
+/// real audio recording (.wav), FastAPI Whisper analysis, phoneme feedback.
 class ShowAndTellScreen extends ConsumerStatefulWidget {
   final String childId;
   const ShowAndTellScreen({super.key, required this.childId});
@@ -22,521 +25,560 @@ class ShowAndTellScreen extends ConsumerStatefulWidget {
 
 class _ShowAndTellScreenState extends ConsumerState<ShowAndTellScreen>
     with SingleTickerProviderStateMixin {
-  int _phase = 0; // 0=intro, 1=category, 2=word, 3=recording, 4=wordResult, 5=done
 
-  // ── Category word bank ────────────────────────────────────────────────
-  static const Map<String, List<Map<String, dynamic>>> _categories = {
-    'Animals': [
-      {'word': 'Cat', 'icon': '🐱', 'phonemes': ['k', 'æ', 't']},
-      {'word': 'Dog', 'icon': '🐶', 'phonemes': ['d', 'ɒ', 'ɡ']},
-      {'word': 'Fish', 'icon': '🐟', 'phonemes': ['f', 'ɪ', 'ʃ']},
-      {'word': 'Bird', 'icon': '🐦', 'phonemes': ['b', 'ɜː', 'd']},
-    ],
-    'Food': [
-      {'word': 'Milk', 'icon': '🥛', 'phonemes': ['m', 'ɪ', 'l', 'k']},
-      {'word': 'Rice', 'icon': '🍚', 'phonemes': ['r', 'aɪ', 's']},
-      {'word': 'Egg', 'icon': '🥚', 'phonemes': ['ɛ', 'ɡ']},
-      {'word': 'Cake', 'icon': '🎂', 'phonemes': ['k', 'eɪ', 'k']},
-    ],
-    'Objects': [
-      {'word': 'Ball', 'icon': '⚽', 'phonemes': ['b', 'ɔː', 'l']},
-      {'word': 'Cup', 'icon': '🥤', 'phonemes': ['k', 'ʌ', 'p']},
-      {'word': 'Shoe', 'icon': '👟', 'phonemes': ['ʃ', 'uː']},
-      {'word': 'Book', 'icon': '📚', 'phonemes': ['b', 'ʊ', 'k']},
-    ],
-    'Body': [
-      {'word': 'Hand', 'icon': '✋', 'phonemes': ['h', 'æ', 'n', 'd']},
-      {'word': 'Eye', 'icon': '👁️', 'phonemes': ['aɪ']},
-      {'word': 'Nose', 'icon': '👃', 'phonemes': ['n', 'əʊ', 'z']},
-      {'word': 'Ear', 'icon': '👂', 'phonemes': ['ɪə']},
-    ],
-    'Transport': [
-      {'word': 'Car', 'icon': '🚗', 'phonemes': ['k', 'ɑː']},
-      {'word': 'Bus', 'icon': '🚌', 'phonemes': ['b', 'ʌ', 's']},
-      {'word': 'Boat', 'icon': '⛵', 'phonemes': ['b', 'əʊ', 't']},
-      {'word': 'Bike', 'icon': '🚲', 'phonemes': ['b', 'aɪ', 'k']},
-    ],
+  // ── State ──────────────────────────────────────────────────────────────
+  String _selectedCategory = 'animals';
+  Map<String, List<Map<String, dynamic>>> _imageBank = {};
+  List<Map<String, dynamic>> _currentPool = [];
+  int _currentIndex = 0;
+  bool _isLoadingImages = true;
+
+  // Recording
+  late final AudioRecorder _audioRecorder;
+  bool _isRecording = false;
+  bool _isAnalyzing = false;
+  int _elapsedSeconds = 0;
+  Timer? _recordingTimer;
+  Timer? _autoStopTimer;
+  String? _recordedFilePath;
+
+  // Result
+  Map<String, dynamic>? _analysisResult;
+  bool _showResult = false;
+  bool _isSaving = false;
+
+  static const _categories = ['animals', 'food', 'objects', 'body', 'transport'];
+  static const _categoryLabels = {
+    'animals': 'Animals', 'food': 'Food', 'objects': 'Objects',
+    'body': 'Body Parts', 'transport': 'Transport',
   };
 
-  String _selectedCategory = 'Animals';
-  late List<Map<String, dynamic>> _words;
-  int _currentWordIndex = 0;
-  bool _isLoading = false;
-
-
-  // Per-word results
-  final List<Map<String, dynamic>> _wordResults = [];
-  String? _currentClarity;
-  int? _currentMatchScore;
-  List<String> _currentPhonemesMissed = [];
-
-  late final AudioRecorder _audioRecorder;
-  String? _recordedFilePath;
+  // Emoji fallback for when URL starts with "emoji://"
+  static const _emojiMap = {
+    'cat': '🐱', 'dog': '🐶', 'fish': '🐟', 'bird': '🐦', 'cow': '🐄',
+    'duck': '🦆', 'frog': '🐸', 'horse': '🐴', 'sheep': '🐑', 'lion': '🦁',
+    'milk': '🥛', 'rice': '🍚', 'egg': '🥚', 'cake': '🎂', 'apple': '🍎',
+    'banana': '🍌', 'bread': '🍞', 'cheese': '🧀', 'grape': '🍇', 'orange': '🍊',
+    'ball': '⚽', 'cup': '🥤', 'shoe': '👟', 'book': '📚', 'chair': '🪑',
+    'clock': '🕐', 'key': '🔑', 'phone': '📱', 'star': '⭐', 'hat': '🎩',
+    'hand': '✋', 'eye': '👁️', 'nose': '👃', 'ear': '👂', 'mouth': '👄',
+    'foot': '🦶', 'teeth': '🦷', 'hair': '💇', 'thumb': '👍', 'leg': '🦵',
+    'car': '🚗', 'bus': '🚌', 'boat': '⛵', 'bike': '🚲', 'train': '🚂',
+    'plane': '✈️', 'truck': '🚛', 'taxi': '🚕', 'ship': '🚢', 'rocket': '🚀',
+  };
 
   @override
   void initState() {
     super.initState();
     _audioRecorder = AudioRecorder();
+    _loadImages();
   }
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
+    _autoStopTimer?.cancel();
     _audioRecorder.dispose();
     super.dispose();
   }
 
-  void _startGame() {
-    _words = _categories[_selectedCategory]!;
-    _currentWordIndex = 0;
-    _wordResults.clear();
-    setState(() => _phase = 2);
+  // ── Image Loading (Hive cache + FastAPI) ───────────────────────────────
+  Future<void> _loadImages() async {
+    try {
+      final box = await Hive.openBox('images_box');
+      final cachedTs = box.get('cached_at') as int?;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final stale = cachedTs == null || (now - cachedTs) > 86400000; // 24h
+
+      if (!stale && box.containsKey('image_bank')) {
+        final raw = Map<String, dynamic>.from(box.get('image_bank'));
+        _imageBank = raw.map((k, v) => MapEntry(k,
+            (v as List).map((e) => Map<String, dynamic>.from(e)).toList()));
+      } else {
+        try {
+          final api = ref.read(fastApiServiceProvider);
+          final data = await api.getSpeechImages();
+          _imageBank = data.map((k, v) => MapEntry(k,
+              (v as List).map((e) => Map<String, dynamic>.from(e)).toList()));
+          await box.put('image_bank', data);
+          await box.put('cached_at', now);
+        } catch (_) {
+          // Offline fallback: use whatever is cached or empty
+          if (box.containsKey('image_bank')) {
+            final raw = Map<String, dynamic>.from(box.get('image_bank'));
+            _imageBank = raw.map((k, v) => MapEntry(k,
+                (v as List).map((e) => Map<String, dynamic>.from(e)).toList()));
+          }
+        }
+      }
+    } catch (_) {}
+
+    _selectCategory(_selectedCategory);
+    if (mounted) setState(() => _isLoadingImages = false);
   }
 
-  Future<void> _startRecording() async {
-    // Request permission from the user
-    if (await _audioRecorder.hasPermission()) {
-      setState(() { _phase = 3; });
-
-      final tempDir = await getTemporaryDirectory();
-      final path = '${tempDir.path}/show_tell_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      
-      // Start real recording
-      await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
-        path: path,
-      );
-
-      // Record for 3 seconds
-      await Future.delayed(const Duration(seconds: 3));
-
-      // Stop recording
-      _recordedFilePath = await _audioRecorder.stop();
-      print('Recorded audio saved to: $_recordedFilePath');
-
-      // Simulated results — in production: path → WAV → FastAPI → Whisper → analysis
-    final word = _words[_currentWordIndex];
-    final phonemes = word['phonemes'] as List<String>;
-    final missed = <String>[];
-
-    // Simulate random phoneme misses
-    for (int i = 0; i < phonemes.length; i++) {
-      if ((_currentWordIndex + i) % 5 == 0) missed.add(phonemes[i]);
-    }
-
-    final matched = phonemes.length - missed.length;
-    final matchPct = (matched / phonemes.length * 100).round();
-    String clarity;
-    if (matchPct >= 90) {
-      clarity = 'Excellent';
-    } else if (matchPct >= 70) {
-      clarity = 'Good';
-    } else if (matchPct >= 50) {
-      clarity = 'Needs Practice';
-    } else {
-      clarity = 'Unclear';
-    }
-
-    setState(() {
-
-      _phase = 4;
-      _currentClarity = clarity;
-      _currentMatchScore = matchPct;
-      _currentPhonemesMissed = missed;
-    });
-    } else {
-      // Permission denied
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission is required to play this game.'), backgroundColor: HearTechColors.coralRed),
-        );
-      }
-    }
+  void _selectCategory(String cat) {
+    _selectedCategory = cat;
+    _currentPool = List.from(_imageBank[cat] ?? []);
+    _currentPool.shuffle(Random());
+    _currentIndex = 0;
+    _resetResult();
+    setState(() {});
   }
 
   void _nextWord() {
-    _wordResults.add({
-      'word': _words[_currentWordIndex]['word'],
-      'clarity': _currentClarity,
-      'matchScore': _currentMatchScore,
-      'phonemesMissed': List<String>.from(_currentPhonemesMissed),
+    if (_currentPool.isEmpty) return;
+    setState(() {
+      _currentIndex = (_currentIndex + 1) % _currentPool.length;
+      _resetResult();
     });
+  }
 
-    if (_currentWordIndex < _words.length - 1) {
-      setState(() { _currentWordIndex++; _phase = 2; });
+  void _resetResult() {
+    _analysisResult = null;
+    _showResult = false;
+    _isRecording = false;
+    _isAnalyzing = false;
+    _elapsedSeconds = 0;
+    _recordingTimer?.cancel();
+    _autoStopTimer?.cancel();
+  }
+
+  String get _currentWord =>
+      _currentPool.isNotEmpty ? _currentPool[_currentIndex]['word'] ?? '' : '';
+  String get _currentUrl =>
+      _currentPool.isNotEmpty ? _currentPool[_currentIndex]['url'] ?? '' : '';
+  bool get _isEmoji => _currentUrl.startsWith('emoji://');
+
+  // ── Recording ──────────────────────────────────────────────────────────
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecording();
     } else {
-      _submitResults();
+      await _startRecording();
     }
   }
 
-  Future<void> _submitResults() async {
-    setState(() { _phase = 5; _isLoading = true; });
-    try {
-      final fs = ref.read(firestoreServiceProvider);
-      final uid = ref.read(firebaseAuthServiceProvider).uid!;
-      final logId = fs.generateId('speechLogs');
-      final avgScore = _wordResults.isEmpty ? 0
-          : (_wordResults.map((r) => r['matchScore'] as int).reduce((a, b) => a + b) / _wordResults.length).round();
-
-      final allMissed = <String>[];
-      for (final r in _wordResults) {
-        allMissed.addAll(r['phonemesMissed'] as List<String>);
-      }
-
-      final log = SpeechLogModel(
-        logId: logId, game: 'showAndTell', conductedBy: uid, conductorRole: 'parent',
-        date: DateTime.now(), score: avgScore,
-        expectedWord: _words.map((w) => w['word'] as String).join(', '),
-        matchScore: avgScore,
-        clarityRating: avgScore >= 80 ? 'Good' : avgScore >= 50 ? 'Needs Practice' : 'Unclear',
-        phonemesMissed: allMissed.toSet().toList(),
-        aiAnalysisSummary: 'Tested ${_words.length} words in $_selectedCategory category. Average match: $avgScore%.',
+  Future<void> _startRecording() async {
+    if (!await _audioRecorder.hasPermission()) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Microphone Required'),
+          content: const Text(
+            'HearTech needs microphone access to record your child\'s speech. '
+            'Please enable microphone permission in your device settings.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
       );
-      await fs.addSpeechLog(widget.childId, log);
+      return;
+    }
+
+    final tempDir = await getTemporaryDirectory();
+    final path = '${tempDir.path}/show_tell_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+    await _audioRecorder.start(
+      const RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000, numChannels: 1),
+      path: path,
+    );
+
+    setState(() { _isRecording = true; _elapsedSeconds = 0; });
+
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (mounted) setState(() => _elapsedSeconds = t.tick);
+    });
+
+    _autoStopTimer = Timer(const Duration(seconds: 10), () {
+      if (_isRecording) _stopRecording();
+    });
+  }
+
+  Future<void> _stopRecording() async {
+    _recordingTimer?.cancel();
+    _autoStopTimer?.cancel();
+    _recordedFilePath = await _audioRecorder.stop();
+    setState(() { _isRecording = false; _isAnalyzing = true; });
+    await _analyzeRecording();
+  }
+
+  Future<void> _analyzeRecording() async {
+    if (_recordedFilePath == null) return;
+    try {
+      final api = ref.read(fastApiServiceProvider);
+      final result = await api.analyzeSpeech(
+        audioFilePath: _recordedFilePath!,
+        expectedWord: _currentWord,
+        childId: widget.childId,
+      );
+      if (mounted) setState(() { _analysisResult = result; _showResult = true; _isAnalyzing = false; });
     } catch (e) {
       if (mounted) {
+        setState(() => _isAnalyzing = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
+          SnackBar(content: Text('Analysis failed: $e'), backgroundColor: HearTechColors.coralRed),
         );
       }
     }
-    setState(() => _isLoading = false);
   }
 
+  // ── Save ────────────────────────────────────────────────────────────────
+  Future<void> _saveResult() async {
+    if (_analysisResult == null) return;
+    setState(() => _isSaving = true);
+    try {
+      final fs = ref.read(firestoreServiceProvider);
+      final uid = ref.read(firebaseAuthServiceProvider).uid!;
+      final role = ref.read(userRoleProvider) ?? 'parent';
+      final logId = fs.generateId('speechLogs');
+
+      final log = SpeechLogModel(
+        logId: logId, game: 'showAndTell', conductedBy: uid, conductorRole: role,
+        date: DateTime.now(),
+        score: _analysisResult!['matchScore'] as int? ?? 0,
+        whisperTranscript: _analysisResult!['transcript'] as String?,
+        expectedWord: _currentWord,
+        matchScore: _analysisResult!['matchScore'] as int? ?? 0,
+        clarityRating: _analysisResult!['clarityRating'] as String?,
+        phonemesMissed: _analysisResult!['phonemesMissed'] != null
+            ? List<String>.from(_analysisResult!['phonemesMissed'])
+            : null,
+        aiAnalysisSummary: _analysisResult!['feedbackMessage'] as String?,
+      );
+      await fs.addSpeechLog(widget.childId, log);
+      await fs.updateChild(widget.childId, {'lastSpeechSessionDate': DateTime.now()});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Result saved! ✓'), backgroundColor: HearTechColors.green),
+        );
+        _nextWord();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Save failed: $e'), backgroundColor: HearTechColors.coralRed),
+        );
+      }
+    }
+    if (mounted) setState(() => _isSaving = false);
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: HearTechColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent, elevation: 0,
+        backgroundColor: HearTechColors.deepTeal,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: HearTechColors.textPrimary),
-          onPressed: () => context.go(Routes.parentDashboard),
+          icon: const Icon(Icons.close, color: HearTechColors.white),
+          onPressed: () => context.pop(),
         ),
-        title: Text('Show & Tell', style: HearTechTextStyles.sectionHeader()),
+        title: Text('Show & Tell', style: HearTechTextStyles.appBarTitle(color: HearTechColors.white)),
         centerTitle: true,
+        actions: [
+          if (!_showResult && _currentPool.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.skip_next_rounded, color: HearTechColors.white),
+              tooltip: 'Next Word',
+              onPressed: _nextWord,
+            ),
+        ],
       ),
-      body: SafeArea(
-        child: _phase == 0 ? _buildIntro()
-            : _phase == 1 ? _buildCategoryPicker()
-            : _phase == 2 ? _buildWordDisplay()
-            : _phase == 3 ? _buildRecording()
-            : _phase == 4 ? _buildWordResult()
-            : _buildDone(),
-      ),
+      body: _isLoadingImages
+          ? const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal))
+          : SafeArea(child: _buildBody()),
     );
   }
 
-  // ── Phase 0: Intro ────────────────────────────────────────────────────
-  Widget _buildIntro() {
-    return Padding(
-      padding: const EdgeInsets.all(32),
+  Widget _buildBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: HearTechColors.deepTeal.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.record_voice_over, size: 64, color: HearTechColors.deepTeal),
-          ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 32),
-          Text('Show & Tell', style: HearTechTextStyles.screenTitle()),
-          const SizedBox(height: 12),
-          Text(
-            'A word and picture will appear. Whisper it to your child, then tap Record to capture their response.',
-            style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: HearTechColors.paleTeal,
-              borderRadius: HearTechDecorations.cardBorderRadius,
-            ),
-            child: Row(children: [
-              const Icon(Icons.tips_and_updates, color: HearTechColors.deepTeal, size: 18),
-              const SizedBox(width: 10),
-              Expanded(child: Text(
-                'Choose a word category, then go through 4 words. Results are saved automatically.',
-                style: HearTechTextStyles.caption(color: HearTechColors.deepTeal),
-              )),
-            ]),
-          ),
-          const SizedBox(height: 40),
-          HearTechButton(label: 'Choose Category', onPressed: () => setState(() => _phase = 1)),
+          // ── Category Chips ───────────────────────────────────────────
+          _buildCategoryChips(),
+          const SizedBox(height: 20),
+
+          if (_currentPool.isEmpty)
+            _buildEmptyState()
+          else if (_showResult && _analysisResult != null)
+            _buildResultCard()
+          else if (_isAnalyzing)
+            _buildAnalyzingState()
+          else
+            _buildGameView(),
         ],
       ),
     );
   }
 
-  // ── Phase 1: Category Picker ──────────────────────────────────────────
-  Widget _buildCategoryPicker() {
-    final cats = _categories.keys.toList();
-    final icons = ['🐾', '🍎', '📦', '🧍', '🚗'];
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          Text('Pick a Category', style: HearTechTextStyles.screenTitle()),
-          const SizedBox(height: 8),
-          Text('Choose words your child knows best.', style: HearTechTextStyles.caption()),
-          const SizedBox(height: 32),
-          ...List.generate(cats.length, (i) {
-            final selected = _selectedCategory == cats[i];
-            return GestureDetector(
-              onTap: () => setState(() => _selectedCategory = cats[i]),
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: selected ? HearTechColors.deepTeal.withValues(alpha: 0.1) : HearTechColors.white,
-                  borderRadius: HearTechDecorations.cardBorderRadius,
-                  border: Border.all(
-                    color: selected ? HearTechColors.deepTeal : HearTechColors.deepTeal.withValues(alpha: 0.1),
-                    width: selected ? 2 : 1,
+  // ── Category Chips ─────────────────────────────────────────────────────
+  Widget _buildCategoryChips() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Wrap(
+        spacing: 8,
+        children: _categories.map((cat) {
+          final selected = cat == _selectedCategory;
+          return FilterChip(
+            label: Text(_categoryLabels[cat] ?? cat),
+            selected: selected,
+            onSelected: (_) => _selectCategory(cat),
+            selectedColor: HearTechColors.deepTeal,
+            backgroundColor: HearTechColors.paleTeal,
+            labelStyle: HearTechTextStyles.caption(
+              color: selected ? HearTechColors.white : HearTechColors.deepTeal,
+            ).copyWith(fontWeight: FontWeight.w600),
+            checkmarkColor: HearTechColors.white,
+            side: BorderSide.none,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Game View (image + mic) ────────────────────────────────────────────
+  Widget _buildGameView() {
+    return Column(
+      children: [
+        // Image display
+        Container(
+          width: 240, height: 240,
+          decoration: BoxDecoration(
+            color: HearTechColors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: HearTechDecorations.cardShadow,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: _isEmoji
+                ? Center(child: Text(
+                    _emojiMap[_currentWord] ?? '❓',
+                    style: const TextStyle(fontSize: 100),
+                  ))
+                : CachedNetworkImage(
+                    imageUrl: _currentUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => Container(
+                      color: HearTechColors.paleTeal,
+                      child: const Center(child: CircularProgressIndicator(
+                        color: HearTechColors.deepTeal, strokeWidth: 2)),
+                    ),
+                    errorWidget: (_, __, ___) => Center(child: Text(
+                      _emojiMap[_currentWord] ?? '❓',
+                      style: const TextStyle(fontSize: 100),
+                    )),
                   ),
-                ),
-                child: Row(children: [
-                  Text(icons[i], style: const TextStyle(fontSize: 28)),
-                  const SizedBox(width: 14),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(cats[i], style: HearTechTextStyles.subtitle(
-                        color: selected ? HearTechColors.deepTeal : HearTechColors.textPrimary)),
-                    Text('${_categories[cats[i]]!.length} words', style: HearTechTextStyles.caption()),
-                  ])),
-                  if (selected) const Icon(Icons.check_circle, color: HearTechColors.deepTeal),
-                ]),
-              ),
-            ).animate(delay: (i * 60).ms).fadeIn(duration: 200.ms).slideX(begin: 0.1);
-          }),
-          const Spacer(),
-          HearTechButton(label: 'Start with $_selectedCategory', onPressed: _startGame),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  // ── Phase 2: Word Display ─────────────────────────────────────────────
-  Widget _buildWordDisplay() {
-    final word = _words[_currentWordIndex];
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Word ${_currentWordIndex + 1} of ${_words.length}', style: HearTechTextStyles.caption()),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: (_currentWordIndex + 1) / _words.length,
-            color: HearTechColors.deepTeal, backgroundColor: HearTechColors.paleTeal,
-            borderRadius: BorderRadius.circular(4),
           ),
-          const SizedBox(height: 40),
-          Text('Whisper this word:', style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
-          const SizedBox(height: 16),
-          // Emoji illustration
-          Text(word['icon'] as String, style: const TextStyle(fontSize: 80))
-              .animate().scale(duration: 400.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-            decoration: BoxDecoration(
-              color: HearTechColors.deepTeal.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.2)),
-            ),
-            child: Text(
-              word['word'] as String,
-              style: HearTechTextStyles.screenTitle(color: HearTechColors.deepTeal).copyWith(fontSize: 36, letterSpacing: 4),
-            ),
-          ).animate().fadeIn(duration: 300.ms),
-          const SizedBox(height: 40),
-          HearTechButton(label: '🎤 Record Response', onPressed: _startRecording),
-        ],
-      ),
-    );
-  }
+        ).animate().scale(
+          begin: const Offset(0.95, 0.95),
+          end: const Offset(1, 1),
+          duration: 300.ms,
+          curve: Curves.easeOut,
+        ),
+        const SizedBox(height: 24),
 
-  // ── Phase 3: Recording — pulsing red ring ─────────────────────────────
-  Widget _buildRecording() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Pulsing red ring
-          Stack(
+        // Prompt
+        Text(
+          'What is this? Say it out loud!',
+          style: HearTechTextStyles.sectionHeader(),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 32),
+
+        // Mic Button
+        GestureDetector(
+          onTap: _toggleRecording,
+          child: Stack(
             alignment: Alignment.center,
             children: [
-              // Outer pulsing ring
+              if (_isRecording) ...[
+                Container(
+                  width: 120, height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: HearTechColors.coralRed.withValues(alpha: 0.3), width: 3),
+                  ),
+                ).animate(onPlay: (c) => c.repeat(reverse: true))
+                    .scale(begin: const Offset(1, 1), end: const Offset(1.4, 1.4), duration: 800.ms)
+                    .fade(begin: 1, end: 0.2),
+              ],
               Container(
-                width: 160, height: 160,
+                width: 80, height: 80,
                 decoration: BoxDecoration(
+                  color: _isRecording ? HearTechColors.white : HearTechColors.deepTeal,
                   shape: BoxShape.circle,
-                  border: Border.all(color: HearTechColors.coralRed.withValues(alpha: 0.3), width: 3),
+                  boxShadow: [BoxShadow(
+                    color: (_isRecording ? HearTechColors.coralRed : HearTechColors.deepTeal).withValues(alpha: 0.3),
+                    blurRadius: 16, spreadRadius: 2,
+                  )],
+                  border: _isRecording ? Border.all(color: HearTechColors.coralRed, width: 3) : null,
                 ),
-              ).animate(onPlay: (c) => c.repeat(reverse: true))
-                  .scale(begin: const Offset(1, 1), end: const Offset(1.3, 1.3), duration: 1000.ms)
-                  .fade(begin: 1, end: 0.3),
-              // Middle pulsing ring
-              Container(
-                width: 130, height: 130,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: HearTechColors.coralRed.withValues(alpha: 0.5), width: 2),
+                child: Icon(
+                  Icons.mic,
+                  size: 36,
+                  color: _isRecording ? HearTechColors.coralRed : HearTechColors.white,
                 ),
-              ).animate(onPlay: (c) => c.repeat(reverse: true), delay: 200.ms)
-                  .scale(begin: const Offset(1, 1), end: const Offset(1.15, 1.15), duration: 800.ms),
-              // Center mic icon
-              Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  color: HearTechColors.coralRed,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: HearTechColors.coralRed.withValues(alpha: 0.3), blurRadius: 20, spreadRadius: 4)],
-                ),
-                child: const Icon(Icons.mic, size: 48, color: HearTechColors.white),
               ),
             ],
           ),
-          const SizedBox(height: 32),
-          Text('Listening...', style: HearTechTextStyles.screenTitle(color: HearTechColors.coralRed))
-              .animate(onPlay: (c) => c.repeat(reverse: true)).fade(begin: 1, end: 0.5, duration: 800.ms),
-          const SizedBox(height: 8),
-          Text('Say the word clearly', style: HearTechTextStyles.caption()),
+        ),
+        const SizedBox(height: 12),
+
+        // Timer / instruction
+        if (_isRecording)
+          Text(
+            '0:${_elapsedSeconds.toString().padLeft(2, '0')}',
+            style: HearTechTextStyles.sectionHeader(color: HearTechColors.coralRed)
+                .copyWith(fontSize: 20),
+          ).animate(onPlay: (c) => c.repeat(reverse: true))
+              .fade(begin: 1, end: 0.5, duration: 800.ms)
+        else
+          Text('Tap to record', style: HearTechTextStyles.caption()),
+      ],
+    );
+  }
+
+  // ── Analyzing State ────────────────────────────────────────────────────
+  Widget _buildAnalyzingState() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      child: Column(
+        children: [
+          const CircularProgressIndicator(color: HearTechColors.deepTeal),
+          const SizedBox(height: 20),
+          Text('Analysing your response...', style: HearTechTextStyles.subtitle()),
         ],
       ),
     );
   }
 
-  // ── Phase 4: Word Result — with phonemes missed ───────────────────────
-  Widget _buildWordResult() {
-    final color = _currentClarity == 'Excellent' ? HearTechColors.green
-        : _currentClarity == 'Good' ? HearTechColors.deepTeal
-        : _currentClarity == 'Needs Practice' ? HearTechColors.warmOrange
+  // ── Result Card ────────────────────────────────────────────────────────
+  Widget _buildResultCard() {
+    final score = _analysisResult!['matchScore'] as int? ?? 0;
+    final clarity = _analysisResult!['clarityRating'] as String? ?? 'Good';
+    final transcript = _analysisResult!['transcript'] as String? ?? '';
+    final missed = List<String>.from(_analysisResult!['phonemesMissed'] ?? []);
+    final feedback = _analysisResult!['feedbackMessage'] as String? ?? '';
+
+    final scoreColor = score >= 90 ? HearTechColors.green
+        : score >= 60 ? HearTechColors.deepTeal
+        : score >= 30 ? HearTechColors.warmOrange
         : HearTechColors.coralRed;
 
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
-            child: Icon(
-              _currentClarity == 'Excellent' ? Icons.star
-                  : _currentClarity == 'Good' ? Icons.thumb_up
-                  : Icons.sentiment_neutral,
-              size: 56, color: color,
-            ),
-          ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 16),
-          Text(_currentClarity ?? 'Good', style: HearTechTextStyles.screenTitle(color: color)),
-          const SizedBox(height: 8),
-          Text('Match: ${_currentMatchScore ?? 0}%', style: HearTechTextStyles.subtitle()),
-          const SizedBox(height: 8),
-          Text('Word: "${_words[_currentWordIndex]['word']}"', style: HearTechTextStyles.caption()),
+    final clarityColor = clarity == 'Excellent' ? HearTechColors.green
+        : clarity == 'Good' ? HearTechColors.deepTeal
+        : clarity == 'Needs Practice' ? HearTechColors.warmOrange
+        : HearTechColors.coralRed;
 
-          // Phonemes missed display
-          if (_currentPhonemesMissed.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: HearTechColors.warmOrange.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.2)),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Phonemes to practice:', style: HearTechTextStyles.caption(color: HearTechColors.warmOrange)
-                    .copyWith(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8, runSpacing: 6,
-                  children: _currentPhonemesMissed.map((p) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: HearTechColors.warmOrange.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('/$p/', style: HearTechTextStyles.subtitle(color: HearTechColors.warmOrange)),
-                  )).toList(),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: HearTechColors.white,
+        borderRadius: HearTechDecorations.cardBorderRadius,
+        boxShadow: HearTechDecorations.cardShadow,
+      ),
+      child: Column(
+        children: [
+          // Score
+          Text('$score%', style: HearTechTextStyles.bigNumber(color: scoreColor)),
+          const SizedBox(height: 8),
+
+          // Score bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: score / 100, minHeight: 10,
+              color: scoreColor, backgroundColor: scoreColor.withValues(alpha: 0.15),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Clarity badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: clarityColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: clarityColor),
+            ),
+            child: Text(clarity, style: HearTechTextStyles.subtitle(color: clarityColor)),
+          ),
+          const SizedBox(height: 16),
+
+          // Transcript
+          Text(
+            'We heard: "$transcript"',
+            style: HearTechTextStyles.body(color: HearTechColors.textSecondary)
+                .copyWith(fontStyle: FontStyle.italic),
+            textAlign: TextAlign.center,
+          ),
+
+          // Phonemes missed
+          if (missed.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Phonemes missed:', style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
+                  .copyWith(fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6, runSpacing: 4,
+              children: missed.map((p) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: HearTechColors.coralRed.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ]),
+                child: Text('/$p/', style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
+                    .copyWith(fontWeight: FontWeight.w600)),
+              )).toList(),
             ),
           ],
-          const SizedBox(height: 32),
+
+          // Feedback
+          if (feedback.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(feedback, style: HearTechTextStyles.body(), textAlign: TextAlign.center),
+          ],
+
+          const SizedBox(height: 24),
+
+          // Buttons
           HearTechButton(
-            label: _currentWordIndex < _words.length - 1 ? 'Next Word →' : 'See Results',
+            label: 'Try Another Word',
+            isSecondary: true,
             onPressed: _nextWord,
+          ),
+          const SizedBox(height: 10),
+          HearTechButton(
+            label: _isSaving ? 'Saving...' : 'Save and Continue',
+            onPressed: _isSaving ? null : _saveResult,
           ),
         ],
       ),
-    );
+    ).animate().slideY(begin: 0.3, duration: 400.ms, curve: Curves.easeOutBack).fadeIn();
   }
 
-  // ── Phase 5: Done ─────────────────────────────────────────────────────
-  Widget _buildDone() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
-    }
-
-    final avgScore = _wordResults.isEmpty ? 0
-        : (_wordResults.map((r) => r['matchScore'] as int).reduce((a, b) => a + b) / _wordResults.length).round();
-
-    return SingleChildScrollView(
+  Widget _buildEmptyState() {
+    return Container(
       padding: const EdgeInsets.all(32),
+      decoration: HearTechDecorations.cardDecoration,
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: HearTechColors.green.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.celebration, size: 64, color: HearTechColors.green),
-          ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 24),
-          Text('Great Job! 🎉', style: HearTechTextStyles.screenTitle()),
-          const SizedBox(height: 8),
-          Text('Average Score: $avgScore%', style: HearTechTextStyles.subtitle(color: HearTechColors.deepTeal)),
-          const SizedBox(height: 24),
-          // Word-by-word summary
-          ...List.generate(_wordResults.length, (i) {
-            final r = _wordResults[i];
-            final clr = r['clarity'] == 'Excellent' ? HearTechColors.green
-                : r['clarity'] == 'Good' ? HearTechColors.deepTeal
-                : HearTechColors.warmOrange;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: clr.withValues(alpha: 0.06),
-                borderRadius: HearTechDecorations.cardBorderRadius,
-                border: Border.all(color: clr.withValues(alpha: 0.15)),
-              ),
-              child: Row(children: [
-                Text(_words[i]['icon'] as String, style: const TextStyle(fontSize: 24)),
-                const SizedBox(width: 10),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r['word'] as String, style: HearTechTextStyles.subtitle()),
-                  Text('${r['clarity']} • ${r['matchScore']}%', style: HearTechTextStyles.caption(color: clr)),
-                ])),
-                Icon(
-                  r['clarity'] == 'Excellent' ? Icons.star : Icons.check_circle_outline,
-                  color: clr,
-                ),
-              ]),
-            );
-          }),
-          const SizedBox(height: 24),
-          HearTechButton(label: 'Back to Dashboard', onPressed: () => context.go(Routes.parentDashboard)),
+          Icon(Icons.image_not_supported, size: 48, color: HearTechColors.textSecondary.withValues(alpha: 0.4)),
+          const SizedBox(height: 12),
+          Text('No images available', style: HearTechTextStyles.subtitle()),
+          const SizedBox(height: 4),
+          Text('Try a different category.', style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
         ],
       ),
     );

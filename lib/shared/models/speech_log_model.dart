@@ -98,19 +98,32 @@ class SpeechLogModel {
   }
 }
 
-/// Single Ling Six sound result.
+/// Single Ling Six sound result — supports two-round testing.
 class LingSixResult {
   final String sound; // m, ah, oo, ee, sh, s
-  final bool heard;
+  final bool round1heard;
+  final bool round2heard;
 
-  const LingSixResult({required this.sound, required this.heard});
+  // Backward compatibility: single `heard` maps to round1heard
+  bool get heard => round1heard;
+
+  const LingSixResult({
+    required this.sound,
+    this.round1heard = false,
+    this.round2heard = false,
+  });
 
   factory LingSixResult.fromJson(Map<String, dynamic> json) {
     return LingSixResult(
       sound: json['sound'] as String? ?? '',
-      heard: json['heard'] as bool? ?? false,
+      round1heard: json['round1heard'] as bool? ?? json['heard'] as bool? ?? false,
+      round2heard: json['round2heard'] as bool? ?? false,
     );
   }
 
-  Map<String, dynamic> toJson() => {'sound': sound, 'heard': heard};
+  Map<String, dynamic> toJson() => {
+        'sound': sound,
+        'round1heard': round1heard,
+        'round2heard': round2heard,
+      };
 }

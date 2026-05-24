@@ -12,3 +12,6 @@ httpx
 cloudinary
 python-multipart
 python-dotenv
+mlx
+mlx-lm
+python-docx

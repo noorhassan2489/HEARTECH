@@ -86,3 +86,12 @@ from cron_jobs import setup_cron_jobs
 @app.on_event("startup")
 async def startup():
     setup_cron_jobs()
+
+    # ── Load Whisper model once at startup ────────────────────────────────
+    try:
+        import whisper
+        app.state.whisper_model = whisper.load_model("base")
+        print("[STARTUP] Whisper 'base' model loaded successfully.")
+    except Exception as e:
+        print(f"[STARTUP] WARNING: Failed to load Whisper model: {e}")
+        app.state.whisper_model = None

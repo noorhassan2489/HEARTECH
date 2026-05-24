@@ -45,4 +45,22 @@ app.*.map.json
 /android/app/release
 
 
+# ── Secrets & credentials — NEVER push these ──────────────────────────────
+.env
+*.env
+**/.env
+**/service-account-key.json
 /backend/service-account-key.json
+
+# ── Firebase config files (contain API keys) ──────────────────────────────
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+
+# ── AI model weights (18GB+) ──────────────────────────────────────────────
+backend/heartech_ai/
+
+# ── Signing keystores ────────────────────────────────────────────────────
+*.keystore
+*.jks
+key.properties

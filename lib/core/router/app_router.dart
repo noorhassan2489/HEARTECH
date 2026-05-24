@@ -26,6 +26,7 @@ import 'package:heartech/features/screening/screens/invite_teacher_screen.dart';
 import 'package:heartech/features/screening/screens/pending_invites_screen.dart';
 import 'package:heartech/features/referral/screens/referral_preview_screen.dart';
 import 'package:heartech/features/referral/screens/referral_generation_screen.dart';
+import 'package:heartech/features/referral/screens/referral_chat_screen.dart';
 import 'package:heartech/features/screening/screens/parent_home_screening_screen.dart';
 import 'package:heartech/features/screening/screens/my_class_screen.dart';
 import 'package:heartech/features/settings/screens/hcw_profile_screen.dart';
@@ -60,6 +61,7 @@ class Routes {
   static const hcwNewScreening = '/hcw/screening/new';
   static const referralPreview = '/referral-preview/:childId/:referralId';
   static const referralGeneration = '/referral-generate/:childId/:screeningId';
+  static const referralChat = '/referral-chat/:childId';
   static const parentDashboard = '/parent/dashboard';
   static const parentChildren = '/parent/children';
   static const parentSpeechGames = '/parent/speech-games';
@@ -194,6 +196,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           childId: s.pathParameters['childId']!, referralId: s.pathParameters['referralId']!)),
       _route(Routes.referralGeneration, (s) => ReferralGenerationScreen(
           childId: s.pathParameters['childId']!, screeningId: s.pathParameters['screeningId']!)),
+      _route(Routes.referralChat, (s) => ReferralChatScreen(
+          childId: s.pathParameters['childId']!)),
 
       // ── Parent ──────────────────────────────────────────────────────────
       _route(Routes.parentDashboard, (_) => const ParentDashboardScreen()),

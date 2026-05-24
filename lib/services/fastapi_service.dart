@@ -120,6 +120,42 @@ class FastApiService {
     return response.data;
   }
 
+  /// Generate referral letter via AI chat — takes child data and HCW instruction.
+  Future<Map<String, dynamic>> generateReferralChat({
+    required Map<String, dynamic> childData,
+    required String hcwInstruction,
+  }) async {
+    final response = await _dio.post('/api/generate-referral-chat', data: {
+      'childData': childData,
+      'hcwInstruction': hcwInstruction,
+    });
+    return response.data;
+  }
+
+  /// Export referral text as PDF and upload to Cloudinary.
+  Future<Map<String, dynamic>> exportReferralPdf({
+    required String referralText,
+    required String childName,
+  }) async {
+    final response = await _dio.post('/api/export-referral-pdf', data: {
+      'referralText': referralText,
+      'childName': childName,
+    });
+    return response.data;
+  }
+
+  /// Export referral text as DOCX and upload to Cloudinary.
+  Future<Map<String, dynamic>> exportReferralDocx({
+    required String referralText,
+    required String childName,
+  }) async {
+    final response = await _dio.post('/api/export-referral-docx', data: {
+      'referralText': referralText,
+      'childName': childName,
+    });
+    return response.data;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // HANDOVER CODE
   // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +303,12 @@ class FastApiService {
       'childId': childId,
     });
     return response.data;
+  }
+
+  /// Fetch Show and Tell image URLs organized by category.
+  Future<Map<String, dynamic>> getSpeechImages() async {
+    final response = await _dio.get('/api/speech-images');
+    return Map<String, dynamic>.from(response.data);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

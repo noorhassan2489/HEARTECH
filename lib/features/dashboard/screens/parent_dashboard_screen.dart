@@ -43,7 +43,15 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
       loading: () => const Scaffold(body: LoadingIndicator(message: 'Loading dashboard...')),
       error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (user) {
-        if (user == null) return const Scaffold(body: LoadingIndicator());
+        if (user == null) {
+          final firebaseUser = ref.read(currentFirebaseUserProvider);
+          if (firebaseUser != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) context.go(Routes.roleSelect);
+            });
+          }
+          return const Scaffold(body: LoadingIndicator());
+        }
 
         return Scaffold(
           backgroundColor: HearTechColors.background,

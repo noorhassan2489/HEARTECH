@@ -1,190 +1,179 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
-import 'package:heartech/shared/widgets/child_card.dart';
 
-/// Speech Games Hub — shows available games and child selection.
-class SpeechGamesScreen extends ConsumerWidget {
+/// Speech Games Hub — child selection then game cards.
+class SpeechGamesScreen extends ConsumerStatefulWidget {
   const SpeechGamesScreen({super.key});
+  @override
+  ConsumerState<SpeechGamesScreen> createState() => _SpeechGamesScreenState();
+}
+
+class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
+  String? _selectedChildId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final childrenAsync = ref.watch(parentChildrenProvider);
+  Widget build(BuildContext context) {
+    final role = ref.watch(userRoleProvider) ?? 'parent';
+    final childrenAsync = role == 'teacher'
+        ? ref.watch(teacherChildrenProvider)
+        : ref.watch(parentChildrenProvider);
 
     return Scaffold(
       backgroundColor: HearTechColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent, elevation: 0,
+        backgroundColor: HearTechColors.deepTeal,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary),
-          onPressed: () => context.go(Routes.parentDashboard),
+          icon: const Icon(Icons.arrow_back, color: HearTechColors.white),
+          onPressed: () => context.pop(),
         ),
-        title: Text('Speech Games', style: HearTechTextStyles.sectionHeader()),
+        title: Text('Speech Exercises',
+            style: HearTechTextStyles.appBarTitle(color: HearTechColors.white)),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Game cards
-            _GameCard(
-              icon: Icons.mic,
-              title: 'Show & Tell',
-              description: 'Whisper a word and record your child\'s response to assess speech clarity.',
-              color: HearTechColors.deepTeal,
-              onSelect: (childId) => context.go(Routes.showAndTell.replaceFirst(':childId', childId)),
-            ),
-            const SizedBox(height: 16),
-            _GameCard(
-              icon: Icons.hearing,
-              title: 'Ling Six Test',
-              description: 'Test your child\'s ability to hear 6 key speech sounds across frequencies.',
-              color: HearTechColors.purple,
-              onSelect: (childId) => context.go(Routes.lingSix.replaceFirst(':childId', childId)),
-            ),
-            const SizedBox(height: 32),
+      body: childrenAsync.when(
+        loading: () => const Center(child: LoadingIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (children) {
+          if (children.isEmpty) return _buildEmpty();
 
-            // Child selection
-            Text('Select a Child', style: HearTechTextStyles.sectionHeader()),
-            const SizedBox(height: 12),
-            childrenAsync.when(
-              loading: () => const LoadingIndicator(),
-              error: (e, _) => Text('Error: $e'),
-              data: (children) {
-                if (children.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: HearTechDecorations.cardDecoration,
-                    child: Column(children: [
-                      Icon(Icons.child_care, size: 48,
-                          color: HearTechColors.deepTeal.withValues(alpha: 0.4)),
-                      const SizedBox(height: 12),
-                      Text('No children linked', style: HearTechTextStyles.subtitle()),
-                      const SizedBox(height: 4),
-                      Text('Claim a child profile first to play speech games.',
-                          style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
-                    ]),
-                  );
-                }
+          // Auto-select if only one child
+          if (children.length == 1 && _selectedChildId == null) {
+            _selectedChildId = children.first.childId;
+          }
 
-                return Column(
-                  children: children.map((child) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: ChildCard(
-                      name: child.name,
-                      ageString: child.ageString,
-                      riskLevel: child.riskLevel,
-                      photoUrl: child.profilePhotoUrl,
-                      onTap: () {
-                        // Store selected child for game navigation
-                        _showGamePicker(context, child.childId);
-                      },
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // Child selection (if multiple)
+              if (children.length > 1) ...[
+                Text('Select a Child', style: HearTechTextStyles.sectionHeader()),
+                const SizedBox(height: 12),
+                ...children.map((child) {
+                  final selected = _selectedChildId == child.childId;
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      _selectedChildId = child.childId;
+                    }),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: selected ? HearTechColors.deepTeal.withValues(alpha: 0.08) : HearTechColors.white,
+                        borderRadius: HearTechDecorations.cardBorderRadius,
+                        border: Border.all(
+                          color: selected ? HearTechColors.deepTeal : HearTechColors.divider,
+                          width: selected ? 2 : 1),
+                        boxShadow: HearTechDecorations.subtleShadow,
+                      ),
+                      child: Row(children: [
+                        CircleAvatar(
+                          radius: 20, backgroundColor: HearTechColors.paleTeal,
+                          child: Text(child.name.isNotEmpty ? child.name[0].toUpperCase() : '?',
+                            style: HearTechTextStyles.subtitle(color: HearTechColors.deepTeal)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(child.name, style: HearTechTextStyles.subtitle(
+                            color: selected ? HearTechColors.deepTeal : HearTechColors.textPrimary)),
+                          Text(child.ageString, style: HearTechTextStyles.caption()),
+                        ])),
+                        if (selected) const Icon(Icons.check_circle, color: HearTechColors.deepTeal),
+                      ]),
                     ),
-                  )).toList(),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showGamePicker(BuildContext context, String childId) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Choose a Game', style: HearTechTextStyles.sectionHeader()),
-            const SizedBox(height: 20),
-            HearTechButton(
-              label: '🎤  Show & Tell',
-              onPressed: () {
-                Navigator.pop(ctx);
-                context.go(Routes.showAndTell.replaceFirst(':childId', childId));
-              },
-            ),
-            const SizedBox(height: 12),
-            HearTechButton(
-              label: '👂  Ling Six Test',
-              onPressed: () {
-                Navigator.pop(ctx);
-                context.go(Routes.lingSix.replaceFirst(':childId', childId));
-              },
-              isSecondary: true,
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GameCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-  final Color color;
-  final void Function(String childId) onSelect;
-
-  const _GameCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.color,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [color, color.withValues(alpha: 0.7)],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-        borderRadius: HearTechDecorations.cardBorderRadius,
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: HearTechColors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, size: 28, color: HearTechColors.white),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: HearTechTextStyles.subtitle(color: HearTechColors.white)),
-                const SizedBox(height: 4),
-                Text(description,
-                    style: HearTechTextStyles.caption(color: HearTechColors.white.withValues(alpha: 0.8)),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                  );
+                }),
+                const SizedBox(height: 24),
               ],
-            ),
-          ),
-        ],
+
+              if (_selectedChildId != null) ...[
+                if (children.length > 1) ...[
+                  Text('Choose a Game', style: HearTechTextStyles.sectionHeader()),
+                  const SizedBox(height: 12),
+                ],
+                // Show and Tell Card
+                _buildGameCard(
+                  icon: Icons.record_voice_over,
+                  title: 'Show and Tell',
+                  description: 'Your child describes images to practice pronunciation',
+                  color: HearTechColors.deepTeal,
+                  buttonLabel: 'Play',
+                  isPrimary: true,
+                  onPressed: () => context.go(
+                    Routes.showAndTell.replaceFirst(':childId', _selectedChildId!)),
+                ),
+                const SizedBox(height: 16),
+                // Ling Six Card
+                _buildGameCard(
+                  icon: Icons.hearing,
+                  title: 'Ling Six Sound Test',
+                  description: 'Test your child\'s response to 6 key speech frequencies',
+                  color: HearTechColors.purple,
+                  buttonLabel: 'Start Test',
+                  isPrimary: false,
+                  onPressed: () => context.go(
+                    Routes.lingSix.replaceFirst(':childId', _selectedChildId!)),
+                ),
+              ],
+            ]),
+          );
+        },
       ),
     );
+  }
+
+  Widget _buildGameCard({
+    required IconData icon, required String title, required String description,
+    required Color color, required String buttonLabel, required bool isPrimary,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      width: double.infinity, padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: HearTechColors.white,
+        borderRadius: HearTechDecorations.cardBorderRadius,
+        boxShadow: HearTechDecorations.cardShadow,
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
+          child: Icon(icon, size: 32, color: color),
+        ),
+        const SizedBox(height: 16),
+        Text(title, style: HearTechTextStyles.sectionHeader(color: color)
+            .copyWith(fontSize: 20)),
+        const SizedBox(height: 6),
+        Text(description, style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
+        const SizedBox(height: 16),
+        HearTechButton(
+          label: buttonLabel,
+          isSecondary: !isPrimary,
+          onPressed: onPressed,
+        ),
+      ]),
+    ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.05);
+  }
+
+  Widget _buildEmpty() {
+    return Center(child: Container(
+      margin: const EdgeInsets.all(32), padding: const EdgeInsets.all(24),
+      decoration: HearTechDecorations.cardDecoration,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.child_care, size: 48, color: HearTechColors.deepTeal.withValues(alpha: 0.4)),
+        const SizedBox(height: 12),
+        Text('No children linked', style: HearTechTextStyles.subtitle()),
+        const SizedBox(height: 4),
+        Text('Claim a child profile first to play speech games.',
+          style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
+      ]),
+    ));
   }
 }

@@ -44,6 +44,14 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
       error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (user) {
         if (user == null) {
+          // Check if actually logged in — if so, profile is missing from Firestore
+          final firebaseUser = ref.read(currentFirebaseUserProvider);
+          if (firebaseUser != null) {
+            // Logged in but no Firestore profile → redirect to role selection
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) context.go(Routes.roleSelect);
+            });
+          }
           return const Scaffold(body: LoadingIndicator(message: 'Loading profile...'));
         }
 

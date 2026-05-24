@@ -185,6 +185,10 @@ class _TeacherLoginScreenState extends ConsumerState<TeacherLoginScreen> {
   String _getErrorMessage(String error) {
     if (error.contains('user-not-found')) return 'No account found.';
     if (error.contains('wrong-password')) return 'Incorrect password.';
+    if (error.contains('invalid-credential')) return 'Incorrect email or password. Please try again.';
+    if (error.contains('invalid-email')) return 'Invalid email address.';
+    if (error.contains('too-many-requests')) return 'Too many attempts. Try later.';
+    if (error.contains('network-request-failed')) return 'No internet connection. Please check your network.';
     return 'Login failed. Please try again.';
   }
 
