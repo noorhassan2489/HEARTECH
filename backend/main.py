@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()  # Load .env file for GEMINI_API_KEY, CLOUDINARY, etc.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HEARTECH FASTAPI — Main application entry point

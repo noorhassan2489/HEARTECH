@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 firebase-admin
-google-generativeai
+google-genai
 scikit-learn
 reportlab
 openai-whisper
