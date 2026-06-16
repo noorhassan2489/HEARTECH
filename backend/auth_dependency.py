@@ -4,10 +4,7 @@ from firebase_admin import auth as firebase_auth
 
 
 async def verify_firebase_token(request: Request):
-    """Verify Firebase JWT on every endpoint except GET /health."""
-    if request.url.path == "/health" and request.method == "GET":
-        return None
-
+    """Verify Firebase JWT on protected endpoints."""
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing auth token")

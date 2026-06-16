@@ -1,4 +1,5 @@
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:flutter/foundation.dart';
 
 class AnalyticsService {
   final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
@@ -14,7 +15,7 @@ class AnalyticsService {
       );
       await _analytics.logEvent(name: name, parameters: objParams);
     } catch (e) {
-      print('Analytics error: $e');
+      debugPrint('Analytics error: $e');
     }
   }
 
@@ -22,7 +23,7 @@ class AnalyticsService {
     try {
       await _analytics.setUserId(id: id);
     } catch (e) {
-      print('Analytics error: $e');
+      debugPrint('Analytics error: $e');
     }
   }
 
@@ -30,7 +31,7 @@ class AnalyticsService {
     try {
       await _analytics.setUserProperty(name: name, value: value);
     } catch (e) {
-      print('Analytics error: $e');
+      debugPrint('Analytics error: $e');
     }
   }
 }

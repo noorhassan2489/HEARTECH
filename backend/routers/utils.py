@@ -9,6 +9,7 @@ import cloudinary.utils
 import firebase_admin
 from firebase_admin import firestore
 from auth_dependency import verify_firebase_token
+from child_auth import assert_token_uid
 
 router = APIRouter()
 
@@ -71,7 +72,7 @@ async def regenerate_handover_code(request: HandoverCodeRequest, token: dict = D
     - Updates Firestore child document with new code, expiry (24h)
     - Returns: newCode, expiresAt
     """
-    # Get child document
+    assert_token_uid(token, request.hcwUid)
     child_ref = db.collection("children").document(request.childId)
     child_doc = child_ref.get()
 
@@ -114,7 +115,10 @@ class CloudinarySignatureRequest(BaseModel):
 
 
 @router.post("/cloudinary-signature")
-async def cloudinary_signature(request: CloudinarySignatureRequest):
+async def cloudinary_signature(
+    request: CloudinarySignatureRequest,
+    token: dict = Depends(verify_firebase_token),
+):
     """
     Generate Cloudinary upload signature for secure uploads.
     Returns: signature, timestamp, cloudName, apiKey

@@ -7,6 +7,7 @@ import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 
 /// Parent Handover Code Entry — 6-box OTP input, validated via FastAPI,
@@ -170,19 +171,9 @@ class _ClaimProfileScreenState extends ConsumerState<ClaimProfileScreen> {
           children: [
             const SizedBox(height: 16),
 
-            // HearTech ear icon
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: HearTechColors.deepTeal.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.hearing,
-                size: 48,
-                color: HearTechColors.deepTeal,
-              ),
-            ).animate().scale(duration: 400.ms, curve: Curves.elasticOut),
+            HearTechLogo(size: 96)
+                .animate()
+                .scale(duration: 400.ms, curve: Curves.elasticOut),
             const SizedBox(height: 24),
 
             Text('Link Child Profile', style: HearTechTextStyles.screenTitle()),

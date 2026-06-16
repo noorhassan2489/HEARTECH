@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:heartech/core/constants/app_constants.dart';
 import 'package:heartech/services/firebase_auth_service.dart';
 
@@ -78,57 +79,38 @@ class FastApiService {
     return response.data;
   }
 
+  /// Recalculate combined milestone risk from all assessment sources.
+  Future<Map<String, dynamic>> aggregateRiskScore({
+    required String childId,
+    String? trigger,
+  }) async {
+    final response = await _dio.post('/api/risk-score/aggregate', data: {
+      'childId': childId,
+      if (trigger != null) 'trigger': trigger,
+    });
+    return response.data;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // REFERRALS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<Map<String, dynamic>> generateReferral({
-    required String childId,
-    required String screeningId,
-    required int riskScore,
-    required List<Map<String, dynamic>> answers,
-    required String hcwDescription,
-    required Map<String, dynamic> hcwInfo,
-    required Map<String, dynamic> childInfo,
-  }) async {
-    final response = await _dio.post('/api/generate-referral', data: {
-      'childId': childId,
-      'screeningId': screeningId,
-      'riskScore': riskScore,
-      'answers': answers,
-      'hcwDescription': hcwDescription,
-      'hcwInfo': hcwInfo,
-      'childInfo': childInfo,
-    });
-    return response.data;
-  }
-
-  Future<Map<String, dynamic>> generateReferralPdf({
-    required String childId,
-    required String referralId,
-    required String referralText,
-    required Map<String, dynamic> hcwInfo,
-    required Map<String, dynamic> childInfo,
-  }) async {
-    final response = await _dio.post('/api/generate-referral-pdf', data: {
-      'childId': childId,
-      'referralId': referralId,
-      'referralText': referralText,
-      'hcwInfo': hcwInfo,
-      'childInfo': childInfo,
-    });
-    return response.data;
-  }
-
   /// Generate referral letter via AI chat — takes child data and HCW instruction.
+  /// Uses extended receiveTimeout since runtime inference can take 60–180s.
   Future<Map<String, dynamic>> generateReferralChat({
     required Map<String, dynamic> childData,
     required String hcwInstruction,
   }) async {
-    final response = await _dio.post('/api/generate-referral-chat', data: {
-      'childData': childData,
-      'hcwInstruction': hcwInstruction,
-    });
+    final response = await _dio.post(
+      '/api/generate-referral-chat',
+      data: {
+        'childData': childData,
+        'hcwInstruction': hcwInstruction,
+      },
+      options: Options(
+        receiveTimeout: const Duration(seconds: 180),
+      ),
+    );
     return response.data;
   }
 
@@ -136,10 +118,12 @@ class FastApiService {
   Future<Map<String, dynamic>> exportReferralPdf({
     required String referralText,
     required String childName,
+    required String childId,
   }) async {
     final response = await _dio.post('/api/export-referral-pdf', data: {
       'referralText': referralText,
       'childName': childName,
+      'childId': childId,
     });
     return response.data;
   }
@@ -148,12 +132,25 @@ class FastApiService {
   Future<Map<String, dynamic>> exportReferralDocx({
     required String referralText,
     required String childName,
+    required String childId,
   }) async {
     final response = await _dio.post('/api/export-referral-docx', data: {
       'referralText': referralText,
       'childName': childName,
+      'childId': childId,
     });
     return response.data;
+  }
+
+  /// Download an export file (local server or Cloudinary URL) into app temp storage.
+  Future<String> downloadExportToTemp({
+    required String fileUrl,
+    required String filename,
+  }) async {
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/$filename';
+    await _dio.download(fileUrl, path);
+    return path;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -210,6 +207,19 @@ class FastApiService {
     return response.data;
   }
 
+  /// Invite an HCW to a parent-linked child profile.
+  Future<Map<String, dynamic>> inviteHcw({
+    required String childId,
+    required String hcwEmail,
+  }) async {
+    final response = await _dio.post('/api/invite-hcw', data: {
+      'childId': childId,
+      'parentUid': _currentUid,
+      'hcwEmail': hcwEmail,
+    });
+    return response.data;
+  }
+
   /// Cancel a pending invite. Sends parentUid for authorization.
   Future<Map<String, dynamic>> cancelInvite({
     required String inviteId,
@@ -224,22 +234,27 @@ class FastApiService {
   Future<Map<String, dynamic>> respondInvite({
     required String inviteId,
     required String action, // "accept" or "decline"
+    String inviteType = 'teacher',
   }) async {
     final response = await _dio.post('/api/respond-invite', data: {
       'inviteId': inviteId,
       'action': action,
-      'teacherUid': _currentUid,
+      if (inviteType == 'hcw') 'hcwUid': _currentUid else 'teacherUid': _currentUid,
     });
     return response.data;
   }
 
-  /// Get pending invites. Can filter by teacherUid or parentUid.
-  Future<List<dynamic>> getPendingInvites({String? parentUid}) async {
+  /// Get pending invites. Can filter by teacherUid, hcwUid, or parentUid.
+  Future<List<dynamic>> getPendingInvites({
+    String? parentUid,
+    String inviteeRole = 'teacher',
+  }) async {
     final params = <String, dynamic>{};
     if (parentUid != null) {
       params['parentUid'] = parentUid;
+    } else if (inviteeRole == 'hcw') {
+      params['hcwUid'] = _currentUid;
     } else {
-      // Default: use current user as teacher
       params['teacherUid'] = _currentUid;
     }
     final response = await _dio.get('/api/pending-invites', queryParameters: params);
@@ -259,6 +274,30 @@ class FastApiService {
       'childId': childId,
       'parentUid': _currentUid,
       'hcwId': hcwId,
+    });
+    return response.data;
+  }
+
+  /// HCW removes themselves from a parent-linked child profile.
+  Future<Map<String, dynamic>> hcwUnlinkSelf({
+    required String childId,
+  }) async {
+    final uid = _currentUid;
+    final response = await _dio.post('/api/remove-hcw', data: {
+      'childId': childId,
+      'parentUid': uid,
+      'hcwId': uid,
+    });
+    return response.data;
+  }
+
+  /// Permanently delete an unclaimed child profile (HCW only).
+  Future<Map<String, dynamic>> hcwDeleteChild({
+    required String childId,
+  }) async {
+    final response = await _dio.post('/api/hcw-delete-child', data: {
+      'childId': childId,
+      'hcwUid': _currentUid,
     });
     return response.data;
   }
@@ -311,6 +350,12 @@ class FastApiService {
     return Map<String, dynamic>.from(response.data);
   }
 
+  /// Fetch Ling Six audio/image manifest from Cloudinary via backend.
+  Future<Map<String, dynamic>> getLingSixAssets() async {
+    final response = await _dio.get('/api/ling-six-assets');
+    return Map<String, dynamic>.from(response.data);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // QUESTIONNAIRES
   // ═══════════════════════════════════════════════════════════════════════════
@@ -354,5 +399,31 @@ class FastApiService {
       if (navigationRoute != null) 'navigationRoute': navigationRoute,
       if (relatedChildId != null) 'relatedChildId': relatedChildId,
     });
+  }
+
+  /// Plain-language API error for snackbars (physical device + localhost is common).
+  static String userFacingMessage(Object error) {
+    if (error is DioException) {
+      final isConnection = error.type == DioExceptionType.connectionError ||
+          error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout;
+      if (isConnection) {
+        final base = AppConstants.fastApiBaseUrl;
+        if (base.contains('127.0.0.1') || base.contains('localhost')) {
+          return 'Cannot reach the screening server. On a physical phone, '
+              'run the backend on your Mac with --host 0.0.0.0 --port 8000, '
+              'then restart the app with '
+              '--dart-define=FASTAPI_BASE_URL=http://YOUR_MAC_WIFI_IP:8000';
+        }
+        return 'Cannot reach the screening server at $base. '
+            'Check that the backend is running and your phone is on the same Wi‑Fi.';
+      }
+      final detail = error.response?.data;
+      if (detail is Map && detail['detail'] != null) {
+        return detail['detail'].toString();
+      }
+    }
+    return error.toString();
   }
 }

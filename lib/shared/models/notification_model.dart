@@ -73,7 +73,7 @@ class NotificationModel {
       'HCW-01', 'HCW-06', 'PAR-09', 'PAR-10', 'TCH-02', 'TCH-07',
     };
     const greenTypes = {'HCW-10', 'PAR-05', 'TCH-05'};
-    const purpleTypes = {'HCW-03', 'HCW-04', 'TCH-01'};
+    const purpleTypes = {'HCW-03', 'HCW-04', 'HCW-11', 'TCH-01', 'invite'};
 
     if (tealTypes.contains(type)) return 'teal';
     if (redTypes.contains(type)) return 'red';

@@ -2,18 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
-import 'package:heartech/core/constants/firestore_paths.dart';
 import 'package:heartech/shared/models/child_model.dart';
+import 'package:heartech/shared/models/speech_log_model.dart';
 import 'package:heartech/shared/models/teacher_observation_model.dart';
 import 'package:heartech/shared/models/note_model.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 import 'package:heartech/shared/widgets/risk_badge.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
+import 'package:heartech/features/speech/utils/speech_game_picker.dart';
+import 'package:heartech/features/referral/widgets/child_referrals_tab.dart';
+import 'package:heartech/core/constants/firestore_paths.dart';
 import 'package:intl/intl.dart';
 
 /// Child Profile — Teacher View (LIMITED DATA).
@@ -32,6 +34,53 @@ class ChildProfileTeacherScreen extends ConsumerStatefulWidget {
 class _ChildProfileTeacherScreenState
     extends ConsumerState<ChildProfileTeacherScreen> {
   bool _isRemoving = false;
+  final _teacherNoteCtrl = TextEditingController();
+  bool _savingTeacherNote = false;
+
+  @override
+  void dispose() {
+    _teacherNoteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveTeacherNote(ChildModel child) async {
+    if (_teacherNoteCtrl.text.trim().isEmpty) return;
+    setState(() => _savingTeacherNote = true);
+    try {
+      final fs = ref.read(firestoreServiceProvider);
+      final user = ref.read(userProfileProvider);
+      final noteId = fs.generateId(FirestorePaths.notes(widget.childId));
+      final note = NoteModel(
+        noteId: noteId,
+        authorUid: user?.uid ?? '',
+        authorName: user?.name ?? 'Teacher',
+        authorRole: 'teacher',
+        text: _teacherNoteCtrl.text.trim(),
+        isPublic: true,
+        parentId: child.parentId,
+        createdAt: DateTime.now(),
+      );
+      await fs.addTeacherNote(widget.childId, note);
+
+      _teacherNoteCtrl.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Note sent to parent.'),
+            backgroundColor: HearTechColors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingTeacherNote = false);
+    }
+  }
 
   Future<void> _unlinkMyself(ChildModel child) async {
     final confirmed = await showDialog<bool>(
@@ -141,8 +190,19 @@ class _ChildProfileTeacherScreenState
                 _buildSpeechSessions(uid ?? ''),
                 const SizedBox(height: 24),
 
+                // ── Send Note to Parent ──────────────────────────
+                _buildTeacherNotes(child),
+                const SizedBox(height: 24),
+
                 // ── HCW Notes (teacher-visible only) ─────────────
-                _buildHcwNotes(),
+                _buildHcwNotes(uid ?? ''),
+                const SizedBox(height: 24),
+
+                // ── Parent-shared referrals ──────────────────────
+                TeacherSharedReferralsSection(
+                  childId: widget.childId,
+                  teacherUid: uid ?? '',
+                ),
                 const SizedBox(height: 32),
 
                 // ── Unlink Button ────────────────────────────────
@@ -214,14 +274,22 @@ class _ChildProfileTeacherScreenState
         const SizedBox(height: 12),
         StreamBuilder<List<TeacherObservationModel>>(
           stream: ref.read(firestoreServiceProvider)
-              .streamTeacherObservations(widget.childId),
+              .streamTeacherOwnObservations(widget.childId, teacherUid),
           builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
               return const LoadingIndicator();
             }
-            final allObs = snap.data ?? [];
-            // Filter to only this teacher's observations
-            final myObs = allObs.where((o) => o.teacherUid == teacherUid).toList();
+            if (snap.hasError) {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: HearTechDecorations.cardDecoration,
+                child: Text(
+                  'Could not load observations.',
+                  style: HearTechTextStyles.body(color: HearTechColors.coralRed),
+                ),
+              );
+            }
+            final myObs = snap.data ?? [];
 
             if (myObs.isEmpty) {
               return Container(
@@ -251,34 +319,49 @@ class _ChildProfileTeacherScreenState
         const SizedBox(height: 12),
         HearTechButton(
           label: 'Submit New Observation',
-          onPressed: () => context.go(Routes.teacherObservation),
+          onPressed: () => context.go(Routes.teacherObservationFor(childId: widget.childId)),
         ),
       ],
     );
   }
 
-  // ── Speech Sessions ───────────────────────────────────────────────────────
+  // ── Speech Sessions (teacher's own only — not parent/HCW home sessions) ───
   Widget _buildSpeechSessions(String teacherUid) {
+    if (teacherUid.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final firestoreService = ref.read(firestoreServiceProvider);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Speech Sessions', style: HearTechTextStyles.sectionHeader()),
+        Text('My Speech Sessions', style: HearTechTextStyles.sectionHeader()),
         const SizedBox(height: 12),
-        StreamBuilder(
-          stream: FirebaseFirestore.instance
-              .collection(FirestorePaths.children)
-              .doc(widget.childId)
-              .collection('speechLogs')
-              .where('conductedBy', isEqualTo: teacherUid)
-              .orderBy('date', descending: true)
-              .snapshots(),
-          builder: (context, AsyncSnapshot<QuerySnapshot> snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+        StreamBuilder<List<SpeechLogModel>>(
+          stream: firestoreService.streamTeacherSpeechLogs(
+            widget.childId,
+            teacherUid,
+          ),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
               return const LoadingIndicator();
             }
-            final docs = snap.data?.docs ?? [];
+            if (snap.hasError) {
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: HearTechDecorations.cardDecoration,
+                child: Text(
+                  'Could not load speech sessions.',
+                  style: HearTechTextStyles.body(color: HearTechColors.coralRed),
+                ),
+              );
+            }
 
-            if (docs.isEmpty) {
+            final logs = snap.data ?? [];
+
+            if (logs.isEmpty) {
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
@@ -288,7 +371,7 @@ class _ChildProfileTeacherScreenState
                     Icon(Icons.mic_none, size: 40,
                         color: HearTechColors.textSecondary.withValues(alpha: 0.4)),
                     const SizedBox(height: 12),
-                    Text('No speech sessions yet.',
+                    Text('No speech sessions from you yet.',
                         style: HearTechTextStyles.body(color: HearTechColors.textSecondary)),
                   ],
                 ),
@@ -296,19 +379,9 @@ class _ChildProfileTeacherScreenState
             }
 
             return Column(
-              children: docs.asMap().entries.map((entry) {
-                final data = entry.value.data() as Map<String, dynamic>;
-                final game = data['game'] as String? ?? 'Unknown';
-                final score = data['score'] as int? ?? 0;
-                final date = data['date'];
-                DateTime parsedDate;
-                if (date is Timestamp) {
-                  parsedDate = date.toDate();
-                } else if (date is String) {
-                  parsedDate = DateTime.parse(date);
-                } else {
-                  parsedDate = DateTime.now();
-                }
+              children: logs.asMap().entries.map((entry) {
+                final log = entry.value;
+                final isShowAndTell = log.isShowAndTell;
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -323,15 +396,15 @@ class _ChildProfileTeacherScreenState
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: game == 'showAndTell'
+                          color: isShowAndTell
                               ? HearTechColors.deepTeal.withValues(alpha: 0.1)
                               : HearTechColors.purple.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          game == 'showAndTell' ? 'Show & Tell' : 'Ling Six',
+                          log.gameDisplayName,
                           style: HearTechTextStyles.caption(
-                            color: game == 'showAndTell'
+                            color: isShowAndTell
                                 ? HearTechColors.deepTeal
                                 : HearTechColors.purple,
                           ).copyWith(fontWeight: FontWeight.w700),
@@ -339,10 +412,22 @@ class _ChildProfileTeacherScreenState
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(DateFormat('MMM d, yyyy').format(parsedDate),
-                            style: HearTechTextStyles.caption()),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(DateFormat('MMM d, yyyy').format(log.date),
+                                style: HearTechTextStyles.caption()),
+                            if (isShowAndTell && (log.expectedWord?.isNotEmpty ?? false))
+                              Text(
+                                'Word: ${log.expectedWord}',
+                                style: HearTechTextStyles.caption(
+                                  color: HearTechColors.textSecondary,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                      Text('$score%',
+                      Text('${log.score}%',
                           style: HearTechTextStyles.subtitle(color: HearTechColors.deepTeal)),
                     ],
                   ),
@@ -355,18 +440,57 @@ class _ChildProfileTeacherScreenState
         const SizedBox(height: 12),
         HearTechButton(
           label: 'Start Speech Session',
-          onPressed: () {
-            // Navigate to speech session selection
-            // (will be built in speech games phase)
-          },
+          icon: Icons.mic,
+          onPressed: () => showSpeechGamePicker(context, widget.childId),
           isSecondary: true,
         ),
       ],
     );
   }
 
+  // ── Teacher notes to parent ───────────────────────────────────────────────
+  Widget _buildTeacherNotes(ChildModel child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Send Note to Parent', style: HearTechTextStyles.sectionHeader()),
+        const SizedBox(height: 8),
+        Text(
+          'Your note is always visible to the parent. They choose whether to share it with the HCW.',
+          style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _teacherNoteCtrl,
+          maxLines: 4,
+          maxLength: 500,
+          decoration: InputDecoration(
+            hintText: 'Message for the parent...',
+            filled: true,
+            fillColor: HearTechColors.paleTeal,
+            border: OutlineInputBorder(
+              borderRadius: HearTechDecorations.inputBorderRadius,
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        HearTechButton(
+          label: _savingTeacherNote ? 'Sending...' : 'Send Note',
+          icon: Icons.send_outlined,
+          onPressed: _savingTeacherNote ? null : () => _saveTeacherNote(child),
+          backgroundColor: HearTechColors.purple,
+        ),
+      ],
+    );
+  }
+
   // ── HCW Notes (teacher-visible) ───────────────────────────────────────────
-  Widget _buildHcwNotes() {
+  Widget _buildHcwNotes(String teacherUid) {
+    if (teacherUid.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -374,15 +498,15 @@ class _ChildProfileTeacherScreenState
             style: HearTechTextStyles.sectionHeader()),
         const SizedBox(height: 12),
         StreamBuilder<List<NoteModel>>(
-          stream: ref.read(firestoreServiceProvider).streamNotes(widget.childId),
+          stream: ref.read(firestoreServiceProvider).streamTeacherNotes(
+            widget.childId,
+            teacherUid,
+          ),
           builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
               return const LoadingIndicator();
             }
-            final allNotes = snap.data ?? [];
-            // Only show notes marked as teacher-visible
-            final visibleNotes =
-                allNotes.where((n) => n.isTeacherVisible).toList();
+            final visibleNotes = snap.data ?? [];
 
             if (visibleNotes.isEmpty) {
               return Container(

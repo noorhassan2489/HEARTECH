@@ -148,10 +148,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     } catch (_) {}
 
     // 3. Navigate
-    if (mounted &&
-        notif.navigationRoute != null &&
-        notif.navigationRoute!.isNotEmpty) {
-      context.go(notif.navigationRoute!);
+    if (mounted) {
+      if (notif.navigationRoute != null && notif.navigationRoute!.isNotEmpty) {
+        context.push(notif.navigationRoute!);
+      } else if (notif.type == 'PAR-07' &&
+          notif.relatedChildId != null &&
+          notif.relatedChildId!.isNotEmpty) {
+        context.push(
+          '${Routes.parentChildProfile.replaceFirst(':childId', notif.relatedChildId!)}?tab=observations',
+        );
+      }
     }
   }
 

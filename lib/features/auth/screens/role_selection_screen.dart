@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 
 /// Role selection screen — 3 cards for HCW, Parent, Teacher.
 class RoleSelectionScreen extends StatelessWidget {
@@ -18,12 +19,7 @@ class RoleSelectionScreen extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 32),
-              // Logo
-              const Icon(
-                Icons.hearing,
-                size: 48,
-                color: HearTechColors.deepTeal,
-              ),
+              const HearTechLogo(size: 88),
               const SizedBox(height: 12),
               Text(
                 'HearTech',
@@ -39,8 +35,6 @@ class RoleSelectionScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 48),
-
-              // Role cards
               Expanded(
                 child: Column(
                   children: [
@@ -101,46 +95,50 @@ class _RoleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: HearTechColors.white,
-          borderRadius: HearTechDecorations.cardBorderRadius,
-          boxShadow: HearTechDecorations.cardShadow,
-          border: Border.all(
-            color: color.withValues(alpha: 0.15),
-            width: 1.5,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: HearTechDecorations.cardBorderRadius,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: HearTechColors.white,
+            borderRadius: HearTechDecorations.cardBorderRadius,
+            boxShadow: HearTechDecorations.cardShadow,
+            border: Border.all(
+              color: color.withValues(alpha: 0.15),
+              width: 1.5,
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, size: 28, color: color),
               ),
-              child: Icon(icon, size: 28, color: color),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: HearTechTextStyles.sectionHeader()),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: HearTechTextStyles.caption(),
-                  ),
-                ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: HearTechTextStyles.sectionHeader()),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: HearTechTextStyles.caption(),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: color),
-          ],
+              Icon(Icons.arrow_forward_ios, size: 16, color: color),
+            ],
+          ),
         ),
       ),
     );

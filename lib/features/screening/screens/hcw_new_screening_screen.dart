@@ -10,12 +10,15 @@ import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/core/constants/firestore_paths.dart';
 import 'package:heartech/shared/models/child_model.dart';
 import 'package:heartech/shared/models/screening_model.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
 import 'package:heartech/shared/widgets/screening_progress_bar.dart';
 import 'package:heartech/shared/widgets/risk_gauge.dart';
 import 'package:heartech/shared/widgets/risk_badge.dart';
 import 'package:heartech/shared/widgets/disclaimer_footer.dart';
+import 'package:heartech/shared/widgets/handover_code_boxes.dart';
+import 'package:heartech/services/fastapi_service.dart';
 
 /// HCW Screening — Full 7-step flow per master build prompt:
 ///   Step 1: Child info + DOB + age bracket detection + gender
@@ -108,7 +111,9 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load: $e'), backgroundColor: HearTechColors.coralRed));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Failed to load: ${FastApiService.userFacingMessage(e)}'),
+            backgroundColor: HearTechColors.coralRed));
         setState(() => _isLoading = false);
       }
     }
@@ -197,7 +202,9 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scoring error: $e'), backgroundColor: HearTechColors.coralRed));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Scoring error: ${FastApiService.userFacingMessage(e)}'),
+            backgroundColor: HearTechColors.coralRed));
       }
     }
   }
@@ -290,6 +297,22 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
         clinicalNote: _noteCtrl.text.trim(),
       );
       await fs.addScreening(childId, screening);
+
+      try {
+        final aggregate = await ref.read(fastApiServiceProvider).aggregateRiskScore(
+          childId: childId,
+          trigger: 'hcw_screening',
+        );
+        await fs.updateChild(childId, {
+          'riskScore': aggregate['riskScore'],
+          'riskLevel': aggregate['riskLevel'],
+          if (aggregate['breakdown'] != null) 'riskBreakdown': aggregate['breakdown'],
+        });
+        _riskScore = (aggregate['riskScore'] as num).toDouble();
+        _riskLevel = aggregate['riskLevel'] as String;
+      } catch (_) {
+        // Profile already has session scores if aggregate fails
+      }
 
       _createdChildId = childId;
       _handoverCode = code;
@@ -681,16 +704,13 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Pulsing ear icon
-          Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: HearTechColors.deepTeal.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.hearing, size: 64, color: HearTechColors.deepTeal),
-          ).animate(onPlay: (c) => c.repeat(reverse: true))
-            .scale(begin: const Offset(1, 1), end: const Offset(1.1, 1.1), duration: 800.ms),
+          HearTechLogo(size: 96)
+              .animate(onPlay: (c) => c.repeat(reverse: true))
+              .scale(
+                begin: const Offset(1, 1),
+                end: const Offset(1.1, 1.1),
+                duration: 800.ms,
+              ),
           const SizedBox(height: 32),
           Text('Analysing responses...', style: HearTechTextStyles.screenTitle()),
           const SizedBox(height: 8),
@@ -842,31 +862,8 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
               children: [
                 Text('Handover Code', style: HearTechTextStyles.subtitle(color: HearTechColors.warmOrange)),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(_handoverCode?.length ?? 0, (i) {
-                    return Container(
-                      width: 44, height: 56,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: HearTechColors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.5)),
-                      ),
-                      child: Center(
-                        child: Text(
-                          _handoverCode![i],
-                          style: HearTechTextStyles.handoverCode(),
-                        ),
-                      ),
-                    ).animate(delay: (i * 80).ms).scale(
-                      begin: const Offset(0, 0),
-                      end: const Offset(1, 1),
-                      duration: 300.ms,
-                      curve: Curves.elasticOut,
-                    );
-                  }),
-                ),
+                if (_handoverCode != null)
+                  HandoverCodeBoxes(code: _handoverCode!),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -897,35 +894,41 @@ class _HcwNewScreeningScreenState extends ConsumerState<HcwNewScreeningScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Step 7: Referral prompt
-          if (_riskLevel == 'high')
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: HearTechColors.coralRed.withValues(alpha: 0.06),
-                borderRadius: HearTechDecorations.cardBorderRadius,
-                border: Border.all(color: HearTechColors.coralRed.withValues(alpha: 0.2)),
-              ),
-              child: Column(children: [
-                Text('Generate a clinical referral for ${_nameCtrl.text.trim()}?',
-                    style: HearTechTextStyles.subtitle(), textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                HearTechButton(
-                  label: 'Generate Referral',
-                  onPressed: () {
-                    if (_createdChildId != null) {
-                      context.go(
-                        Routes.referralGeneration
-                            .replaceFirst(':childId', _createdChildId!)
-                            .replaceFirst(':screeningId', 'latest'),
-                      );
-                    }
-                  },
-                  backgroundColor: HearTechColors.coralRed,
-                ),
-              ]),
+          // Clinical Assistant prompt (all risk levels)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: HearTechColors.deepTeal.withValues(alpha: 0.06),
+              borderRadius: HearTechDecorations.cardBorderRadius,
+              border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.2)),
             ),
+            child: Column(children: [
+              Text(
+                'Open Clinical Assistant for ${_nameCtrl.text.trim()}?',
+                style: HearTechTextStyles.subtitle(),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Ask clinical questions or draft a referral letter.',
+                style: HearTechTextStyles.caption(),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              HearTechButton(
+                label: 'Clinical Assistant',
+                onPressed: () {
+                  if (_createdChildId != null) {
+                    context.push(
+                      Routes.referralChat.replaceFirst(':childId', _createdChildId!),
+                    );
+                  }
+                },
+                icon: Icons.medical_services_outlined,
+              ),
+            ]),
+          ),
 
           const SizedBox(height: 24),
           const DisclaimerFooter(),

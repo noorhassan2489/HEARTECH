@@ -83,6 +83,11 @@ const _hcwSections = [
       title: 'License Verified',
       description: 'Notify you when your license is approved',
     ),
+    _PrefItem(
+      key: 'HCW_11',
+      title: 'New Patient Invite',
+      description: 'Notify you when a parent invites you to join a child profile',
+    ),
   ]),
   _PrefSection(header: 'CRITICAL ALERTS — ALWAYS ON', items: [
     _PrefItem(
@@ -135,7 +140,7 @@ const _parentSections = [
       key: 'PAR_08',
       title: 'New Medical Referral',
       description:
-          'Notify you when your HCW generates a referral letter',
+          'Notify you when your HCW finalizes a referral letter',
     ),
     _PrefItem(
       key: 'PAR_10',

@@ -7,6 +7,8 @@ import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
+import 'package:heartech/shared/utils/portal_login.dart';
+import 'package:heartech/shared/utils/registration_flow.dart';
 
 /// HCW Login Screen
 class HcwLoginScreen extends ConsumerStatefulWidget {
@@ -17,6 +19,8 @@ class HcwLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
+  static const _portalRole = 'hcw';
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -42,32 +46,11 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
       );
 
       if (mounted) {
-        // Check if user profile exists and route to dashboard
-        final firestoreService = ref.read(firestoreServiceProvider);
-        final user = authService.currentUser;
-        if (user != null) {
-          final profile = await firestoreService.getUser(user.uid);
-          if (profile != null && mounted) {
-            // Validate role matches this portal
-            if (profile.role != 'hcw') {
-              await authService.signOut();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
-                    backgroundColor: HearTechColors.coralRed,
-                  ),
-                );
-              }
-              return;
-            }
-            await authService.registerOneSignal(user.uid, profile.role);
-            if (mounted) context.go(Routes.hcwDashboard);
-          } else if (mounted) {
-            // No profile — go to registration
-            context.go(Routes.hcwRegister);
-          }
-        }
+        final result = await PortalLogin.completeSignIn(
+          ref: ref,
+          expectedRole: _portalRole,
+        );
+        if (mounted) _handleLoginResult(result);
       }
     } catch (e) {
       if (mounted) {
@@ -89,26 +72,11 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
       final authService = ref.read(firebaseAuthServiceProvider);
       final result = await authService.signInWithGoogle();
       if (result != null && mounted) {
-        final firestoreService = ref.read(firestoreServiceProvider);
-        final profile = await firestoreService.getUser(result.user!.uid);
-        if (profile != null && mounted) {
-          if (profile.role != 'hcw') {
-            await authService.signOut();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
-                  backgroundColor: HearTechColors.coralRed,
-                ),
-              );
-            }
-            return;
-          }
-          await authService.registerOneSignal(result.user!.uid, profile.role);
-          if (mounted) context.go(Routes.hcwDashboard);
-        } else if (mounted) {
-          context.go(Routes.hcwRegister);
-        }
+        final loginResult = await PortalLogin.completeSignIn(
+          ref: ref,
+          expectedRole: _portalRole,
+        );
+        if (mounted) _handleLoginResult(loginResult);
       }
     } catch (e) {
       if (mounted) {
@@ -121,6 +89,25 @@ class _HcwLoginScreenState extends ConsumerState<HcwLoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _handleLoginResult(PortalLoginResult result) {
+    switch (result) {
+      case PortalLoginSuccess(:final dashboardRoute):
+        context.go(dashboardRoute);
+      case PortalLoginResumeRegistration(:final registerRoute):
+        context.go(registerRoute);
+      case PortalLoginWrongRole(:final actualRole):
+        final label = RegistrationFlow.roleLabel(actualRole);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'This account is a $label account. Please use the $label login portal.',
+            ),
+            backgroundColor: HearTechColors.coralRed,
+          ),
+        );
     }
   }
 

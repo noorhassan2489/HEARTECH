@@ -7,12 +7,14 @@ import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/models/child_model.dart';
 import 'package:heartech/shared/models/screening_model.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/screening_progress_bar.dart';
 import 'package:heartech/shared/widgets/disclaimer_footer.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 import 'package:heartech/shared/widgets/risk_badge.dart';
 import 'package:heartech/core/constants/firestore_paths.dart';
+import 'package:heartech/services/fastapi_service.dart';
 
 /// Parent Home Screening — select child → questionnaire → plain-language result.
 /// No clinical numbers visible to parent. Results use spec-exact headings.
@@ -53,7 +55,7 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Failed to load questions: $e'),
+            content: Text('Failed to load questions: ${FastApiService.userFacingMessage(e)}'),
             backgroundColor: HearTechColors.coralRed));
       }
     } finally {
@@ -124,23 +126,28 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
       );
       await firestoreService.addScreening(_selectedChild!.childId, screening);
 
-      // Update child document
+      final aggregate = await fastApi.aggregateRiskScore(
+        childId: _selectedChild!.childId,
+        trigger: 'parent_screening',
+      );
+
       await firestoreService.updateChild(_selectedChild!.childId, {
         'lastScreeningDate': DateTime.now(),
-        'riskScore': _riskScore,
-        'riskLevel': _riskLevel,
+        'riskScore': aggregate['riskScore'],
+        'riskLevel': aggregate['riskLevel'],
         'lastUpdatedAt': DateTime.now(),
+        if (aggregate['breakdown'] != null) 'riskBreakdown': aggregate['breakdown'],
       });
 
-      // Fire HCW-07: Parent home screening submitted → to HCW
+      // Fire HCW-05: Parent home screening submitted → to HCW
       final hcwIds = _selectedChild!.hcwIds;
       if (hcwIds.isNotEmpty) {
         try {
           await fastApi.sendNotification(
             uid: hcwIds[0],
-            type: 'HCW-07',
+            type: 'HCW-05',
             title: 'Home Screening Completed',
-            body: 'A parent completed a home screening for ${_selectedChild!.name}.',
+            body: 'A parent completed a home screening for ${_selectedChild!.name}. Result: ${_riskLevel.toUpperCase()}.',
             relatedChildId: _selectedChild!.childId,
           );
         } catch (_) {
@@ -154,7 +161,7 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Scoring error: $e'),
+            content: Text('Scoring error: ${FastApiService.userFacingMessage(e)}'),
             backgroundColor: HearTechColors.coralRed));
         setState(() { _step = 0; });
       }
@@ -211,6 +218,15 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
                 Text('No children linked yet.', style: HearTechTextStyles.subtitle()),
                 const SizedBox(height: 8),
                 Text('Claim a profile first.', style: HearTechTextStyles.caption()),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: HearTechButton(
+                    label: 'Enter Handover Code',
+                    icon: Icons.vpn_key_outlined,
+                    onPressed: () => context.go(Routes.parentClaimProfile),
+                  ),
+                ),
               ],
             ),
           );
@@ -317,15 +333,9 @@ class _ParentHomeScreeningState extends ConsumerState<ParentHomeScreeningScreen>
   Widget _buildProcessing() {
     return Center(
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            color: HearTechColors.deepTeal.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.hearing, size: 64, color: HearTechColors.deepTeal),
-        ).animate(onPlay: (c) => c.repeat(reverse: true))
-             .scale(begin: const Offset(1, 1), end: const Offset(1.1, 1.1), duration: 800.ms),
+        HearTechLogo(size: 96)
+            .animate(onPlay: (c) => c.repeat(reverse: true))
+            .scale(begin: const Offset(1, 1), end: const Offset(1.1, 1.1), duration: 800.ms),
         const SizedBox(height: 24),
         Text('Analysing...', style: HearTechTextStyles.screenTitle()),
         const SizedBox(height: 24),

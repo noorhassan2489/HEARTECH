@@ -224,9 +224,35 @@ class _InviteTeacherScreenState extends ConsumerState<InviteTeacherScreen> {
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: HearTechColors.coralRed.withValues(alpha: 0.08),
+              borderRadius: HearTechDecorations.cardBorderRadius,
+              border: Border.all(color: HearTechColors.coralRed.withValues(alpha: 0.2)),
+            ),
+            child: Text(
+              'Could not load pending invites. Pull to refresh or try again later.',
+              style: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+            ),
+          );
+        }
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
         if (!snap.hasData || snap.data!.docs.isEmpty) return const SizedBox.shrink();
 
-        final invites = snap.data!.docs;
+        final invites = snap.data!.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final type = data['inviteType'] as String?;
+          return type == null || type == 'teacher';
+        }).toList();
+        if (invites.isEmpty) return const SizedBox.shrink();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

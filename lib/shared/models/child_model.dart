@@ -14,6 +14,7 @@ class ChildModel {
   final List<String> teacherIds;
   final int riskScore; // 0-100
   final String riskLevel; // low, medium, high
+  final Map<String, int?> riskBreakdown;
   final MedicalHistory medicalHistory;
   final String? triggeringScreeningId;
   final HandoverCode? handoverCode;
@@ -37,6 +38,7 @@ class ChildModel {
     this.teacherIds = const [],
     this.riskScore = 0,
     this.riskLevel = 'low',
+    this.riskBreakdown = const {},
     this.medicalHistory = const MedicalHistory(),
     this.triggeringScreeningId,
     this.handoverCode,
@@ -62,6 +64,7 @@ class ChildModel {
       teacherIds: List<String>.from(json['teacherIds'] ?? []),
       riskScore: json['riskScore'] as int? ?? 0,
       riskLevel: json['riskLevel'] as String? ?? 'low',
+      riskBreakdown: _parseRiskBreakdown(json['riskBreakdown']),
       medicalHistory: json['medicalHistory'] != null
           ? MedicalHistory.fromJson(
               Map<String, dynamic>.from(json['medicalHistory']))
@@ -102,6 +105,7 @@ class ChildModel {
       'teacherIds': teacherIds,
       'riskScore': riskScore,
       'riskLevel': riskLevel,
+      if (riskBreakdown.isNotEmpty) 'riskBreakdown': riskBreakdown,
       'medicalHistory': medicalHistory.toJson(),
       'triggeringScreeningId': triggeringScreeningId,
       'handoverCode': handoverCode?.toJson(),
@@ -135,6 +139,7 @@ class ChildModel {
     List<String>? teacherIds,
     int? riskScore,
     String? riskLevel,
+    Map<String, int?>? riskBreakdown,
     MedicalHistory? medicalHistory,
     String? triggeringScreeningId,
     HandoverCode? handoverCode,
@@ -158,6 +163,7 @@ class ChildModel {
       teacherIds: teacherIds ?? this.teacherIds,
       riskScore: riskScore ?? this.riskScore,
       riskLevel: riskLevel ?? this.riskLevel,
+      riskBreakdown: riskBreakdown ?? this.riskBreakdown,
       medicalHistory: medicalHistory ?? this.medicalHistory,
       triggeringScreeningId:
           triggeringScreeningId ?? this.triggeringScreeningId,
@@ -206,6 +212,14 @@ class ChildModel {
     if (value is DateTime) return value;
     if (value is String) return DateTime.parse(value);
     return DateTime.now();
+  }
+
+  static Map<String, int?> _parseRiskBreakdown(dynamic value) {
+    if (value is! Map) return const {};
+    return value.map((key, raw) {
+      final score = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+      return MapEntry(key.toString(), score);
+    });
   }
 }
 

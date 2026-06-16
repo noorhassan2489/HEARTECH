@@ -16,22 +16,29 @@ import 'package:heartech/shared/widgets/risk_badge.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 import 'package:heartech/shared/widgets/disclaimer_footer.dart';
+import 'package:heartech/shared/widgets/handover_code_boxes.dart';
 import 'package:heartech/shared/models/note_model.dart';
+import 'package:heartech/shared/models/teacher_observation_model.dart';
 import 'package:heartech/core/constants/firestore_paths.dart';
+import 'package:heartech/features/speech/utils/speech_game_picker.dart';
+import 'package:heartech/features/referral/widgets/child_referrals_tab.dart';
+import 'package:heartech/services/fastapi_service.dart';
 import 'package:intl/intl.dart';
 
 /// Child Profile Screen — tabbed interface per role.
 /// HCW: Overview | Screenings | Referrals | Notes | Speech Logs
-/// Parent: Overview | Screenings | Speech Logs
+/// Parent: Overview | Screenings | Referrals | Notes | Speech Logs
 /// Teacher: Overview | Observations | Speech Logs (limited data)
 class ChildProfileScreen extends ConsumerStatefulWidget {
   final String childId;
   final String viewerRole; // hcw, parent, teacher
+  final String? initialTab;
 
   const ChildProfileScreen({
     super.key,
     required this.childId,
     required this.viewerRole,
+    this.initialTab,
   });
 
   @override
@@ -45,9 +52,9 @@ class _ChildProfileScreenState extends ConsumerState<ChildProfileScreen>
   List<String> get _tabs {
     switch (widget.viewerRole) {
       case 'hcw':
-        return ['Overview', 'Screenings', 'Referrals', 'Notes', 'Speech'];
+        return ['Overview', 'Screenings', 'Referrals', 'Observations', 'Notes', 'Speech'];
       case 'parent':
-        return ['Overview', 'Screenings', 'Referrals', 'Speech'];
+        return ['Overview', 'Screenings', 'Referrals', 'Observations', 'Notes', 'Speech'];
       case 'teacher':
         return ['Overview', 'Observations', 'Speech'];
       default:
@@ -68,12 +75,66 @@ class _ChildProfileScreenState extends ConsumerState<ChildProfileScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
+    final tabName = widget.initialTab?.trim();
+    if (tabName != null && tabName.isNotEmpty) {
+      final normalized = tabName.toLowerCase();
+      final index = _tabs.indexWhere((t) => t.toLowerCase() == normalized);
+      if (index >= 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _tabController.animateTo(index);
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Widget _buildProfileUnavailableScaffold({
+    required String message,
+    String? subtitle,
+  }) {
+    return Scaffold(
+      backgroundColor: HearTechColors.background,
+      appBar: AppBar(
+        title: const Text('Child Profile'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go(_backRoute),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                message,
+                style: HearTechTextStyles.subtitle(color: HearTechColors.coralRed),
+                textAlign: TextAlign.center,
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  subtitle,
+                  style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 24),
+              HearTechButton(
+                label: 'Back to Dashboard',
+                onPressed: () => context.go(_backRoute),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -86,11 +147,17 @@ class _ChildProfileScreenState extends ConsumerState<ChildProfileScreen>
         if (childSnap.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: LoadingIndicator(message: 'Loading child profile...'));
         }
+        if (childSnap.hasError) {
+          return _buildProfileUnavailableScaffold(
+            message: 'Could not load child profile.',
+            subtitle: 'You may no longer have access to this profile.',
+          );
+        }
         final child = childSnap.data;
         if (child == null) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Child Profile')),
-            body: const Center(child: Text('Child not found.')),
+          return _buildProfileUnavailableScaffold(
+            message: 'Child profile not found.',
+            subtitle: 'It may have been deleted or unlinked.',
           );
         }
 
@@ -178,10 +245,24 @@ class _ChildProfileScreenState extends ConsumerState<ChildProfileScreen>
     switch (tab) {
       case 'Overview': return _OverviewTab(child: child, viewerRole: widget.viewerRole, childId: widget.childId);
       case 'Screenings': return _ScreeningsTab(childId: widget.childId, viewerRole: widget.viewerRole);
-      case 'Referrals': return _ReferralsTab(childId: widget.childId, viewerRole: widget.viewerRole);
-      case 'Notes': return _NotesTab(childId: widget.childId);
+      case 'Referrals':
+        return ChildReferralsTab(
+          childId: widget.childId,
+          viewerRole: widget.viewerRole,
+          child: child,
+        );
+      case 'Notes':
+        if (widget.viewerRole == 'parent') {
+          return _ParentNotesTab(childId: widget.childId, child: child);
+        }
+        return _NotesTab(childId: widget.childId, child: child);
       case 'Speech': return _SpeechTab(childId: widget.childId, viewerRole: widget.viewerRole);
-      case 'Observations': return _ObservationsTab(childId: widget.childId);
+      case 'Observations':
+        return _ObservationsTab(
+          childId: widget.childId,
+          viewerRole: widget.viewerRole,
+          child: child,
+        );
       default: return const SizedBox.shrink();
     }
   }
@@ -237,6 +318,14 @@ class _OverviewTab extends ConsumerWidget {
               decoration: HearTechDecorations.cardDecoration,
               child: Column(children: [
                 Text('Risk Assessment', style: HearTechTextStyles.sectionHeader()),
+                if (viewerRole == 'hcw') ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Combined milestone score (HCW + home + classroom + speech)',
+                    style: HearTechTextStyles.caption(),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 const SizedBox(height: 16),
                 RiskGauge(score: child.riskScore, riskLevel: child.riskLevel, size: 140),
                 const SizedBox(height: 12),
@@ -246,6 +335,32 @@ class _OverviewTab extends ConsumerWidget {
                       : 'Low Risk — Normal Indicators',
                   style: HearTechTextStyles.subtitle(color: HearTechColors.riskColor(child.riskLevel)),
                 ),
+                if (viewerRole == 'hcw' && child.riskBreakdown.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: child.riskBreakdown.entries.map((entry) {
+                      final label = switch (entry.key) {
+                        'hcw' => 'HCW',
+                        'parent' => 'Parent',
+                        'teacher' => 'Teacher',
+                        'speech' => 'Speech',
+                        _ => entry.key,
+                      };
+                      final score = entry.value;
+                      return Chip(
+                        label: Text(
+                          score != null ? '$label: $score%' : '$label: —',
+                          style: HearTechTextStyles.caption(color: HearTechColors.deepTeal),
+                        ),
+                        backgroundColor: HearTechColors.paleTeal.withValues(alpha: 0.5),
+                        side: BorderSide(color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ]),
             ).animate().fadeIn(duration: 300.ms),
             const SizedBox(height: 16),
@@ -286,23 +401,7 @@ class _OverviewTab extends ConsumerWidget {
                 Text('Share this code with the parent',
                     style: HearTechTextStyles.subtitle(color: HearTechColors.warmOrange)),
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(child.handoverCode!.code.length, (i) => Container(
-                    width: 44, height: 56,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      color: HearTechColors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: HearTechColors.warmOrange.withValues(alpha: 0.5)),
-                    ),
-                    child: Center(child: Text(child.handoverCode!.code[i],
-                        style: HearTechTextStyles.handoverCode())),
-                  ).animate(delay: (i * 80).ms).scale(
-                    begin: const Offset(0, 0), end: const Offset(1, 1),
-                    duration: 300.ms, curve: Curves.elasticOut,
-                  )),
-                ),
+                HandoverCodeBoxes(code: child.handoverCode!.code),
                 const SizedBox(height: 8),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   const Icon(Icons.timer_outlined, size: 16, color: HearTechColors.textSecondary),
@@ -380,7 +479,7 @@ class _OverviewTab extends ConsumerWidget {
             const SizedBox(height: 16),
           ] else ...[
             // Parent view of Linked Profiles (Cards for HCW & Teacher)
-            _HcwInfoCard(childId: childId, hcwIds: child.hcwIds),
+            _HcwInfoCard(childId: childId, hcwIds: child.hcwIds, viewerRole: viewerRole),
             const SizedBox(height: 16),
             _TeacherInfoCard(childId: childId, teacherIds: child.teacherIds, canLink: child.canLinkTeacher),
             const SizedBox(height: 16),
@@ -414,11 +513,33 @@ class _OverviewTab extends ConsumerWidget {
 
           // Action buttons
           if (viewerRole == 'hcw') ...[
-            HearTechButton(label: 'New Screening', onPressed: () => context.go(Routes.hcwNewScreening), icon: Icons.add),
+            HearTechButton(
+              label: 'Follow-up Screening',
+              onPressed: () => context.go(Routes.hcwFollowUpScreeningFor(childId)),
+              icon: Icons.refresh,
+            ),
             const SizedBox(height: 10),
-            if (child.riskLevel == 'high')
-              HearTechButton(label: 'Generate Referral', onPressed: () => _generateReferral(context, ref, child),
-                  isSecondary: true, icon: Icons.description_outlined),
+            HearTechButton(
+              label: 'Clinical Assistant',
+              onPressed: () => _openClinicalAssistant(context, ref, child),
+              isSecondary: true,
+              icon: Icons.medical_services_outlined,
+            ),
+            const SizedBox(height: 12),
+            if (child.isClaimed)
+              HearTechButton(
+                label: 'Unlink from Profile',
+                icon: Icons.person_remove,
+                isSecondary: true,
+                onPressed: () => _unlinkHcwSelf(context, ref, child),
+              )
+            else
+              HearTechButton(
+                label: 'Delete Child Profile',
+                icon: Icons.delete_outline,
+                isSecondary: true,
+                onPressed: () => _deleteChildProfile(context, ref, child),
+              ),
           ],
           if (viewerRole == 'parent' && child.canLinkTeacher && !child.hasTeacher) ...[
             // Button moved into _TeacherInfoCard
@@ -439,6 +560,95 @@ class _OverviewTab extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _unlinkHcwSelf(BuildContext context, WidgetRef ref, ChildModel child) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Unlink from ${child.name}?'),
+        content: Text(
+          'You will lose access to ${child.name}\'s profile. The parent will keep the profile and can link another healthcare worker.',
+          style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Unlink', style: TextStyle(color: HearTechColors.coralRed)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(fastApiServiceProvider).hcwUnlinkSelf(childId: childId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You have been unlinked from this profile.'),
+            backgroundColor: HearTechColors.green,
+          ),
+        );
+        context.go(Routes.hcwDashboard);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FastApiService.userFacingMessage(e)),
+            backgroundColor: HearTechColors.coralRed,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteChildProfile(BuildContext context, WidgetRef ref, ChildModel child) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${child.name}\'s profile?'),
+        content: Text(
+          'This permanently deletes the profile, screenings, and handover code. '
+          'This cannot be undone. Only use this if the profile was created by mistake.',
+          style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: HearTechColors.coralRed)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(fastApiServiceProvider).hcwDeleteChild(childId: childId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Child profile deleted.'),
+            backgroundColor: HearTechColors.green,
+          ),
+        );
+        context.go(Routes.hcwDashboard);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FastApiService.userFacingMessage(e)),
+            backgroundColor: HearTechColors.coralRed,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _unlinkTeacher(BuildContext context, WidgetRef ref) async {
@@ -472,47 +682,8 @@ class _OverviewTab extends ConsumerWidget {
     }
   }
 
-  Future<void> _generateReferral(BuildContext context, WidgetRef ref, ChildModel child) async {
-    try {
-      final fastApi = ref.read(fastApiServiceProvider);
-      final fs = ref.read(firestoreServiceProvider);
-      final screenings = await fs.getScreenings(childId);
-      if (screenings.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No screening data to generate referral.')),
-          );
-        }
-        return;
-      }
-      final user = await fs.getUser(ref.read(firebaseAuthServiceProvider).uid!);
-      
-      await fastApi.generateReferral(
-        childId: childId, 
-        screeningId: screenings.first.screeningId,
-        riskScore: screenings.first.riskScore,
-        answers: screenings.first.answers.map((a) => a.toJson()).toList(),
-        hcwDescription: screenings.first.clinicalNote ?? 'No clinical note provided.',
-        hcwInfo: user?.toJson() ?? {'name': 'Unknown HCW', 'role': 'hcw'},
-        childInfo: {
-          'name': child.name,
-          'age': child.ageString,
-          'gender': child.gender,
-          'medicalHistory': child.medicalHistory.toJson()
-        },
-      );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Referral generated!'), backgroundColor: HearTechColors.green),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: HearTechColors.coralRed),
-        );
-      }
-    }
+  Future<void> _openClinicalAssistant(BuildContext context, WidgetRef ref, ChildModel child) async {
+    context.push(Routes.referralChat.replaceFirst(':childId', childId));
   }
 
   Widget _medRow(String label, bool value) => Padding(
@@ -620,72 +791,174 @@ class _ScreeningsTab extends ConsumerWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// REFERRALS TAB
+// NOTES TAB (Parent — read-only, HCW notes marked public)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _ReferralsTab extends ConsumerWidget {
+class _ParentNotesTab extends ConsumerStatefulWidget {
   final String childId;
-  final String viewerRole;
-  const _ReferralsTab({required this.childId, required this.viewerRole});
+  final ChildModel child;
+  const _ParentNotesTab({required this.childId, required this.child});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ParentNotesTab> createState() => _ParentNotesTabState();
+}
+
+class _ParentNotesTabState extends ConsumerState<_ParentNotesTab> {
+  @override
+  Widget build(BuildContext context) {
     final firestoreService = ref.read(firestoreServiceProvider);
-    return StreamBuilder(
-      stream: firestoreService.streamReferrals(childId),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const LoadingIndicator();
-        final referrals = snap.data ?? [];
-        if (referrals.isEmpty) {
-          return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.description_outlined, size: 56, color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('No referrals generated yet.', style: HearTechTextStyles.subtitle()),
-            if (viewerRole == 'hcw') ...[
-              const SizedBox(height: 8),
-              Text('Generate a referral from the Overview tab.', style: HearTechTextStyles.caption()),
-            ]
-          ]));
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.all(20),
-          itemCount: referrals.length,
-          separatorBuilder: (_, i) => const SizedBox(height: 10),
-          itemBuilder: (_, i) {
-            final r = referrals[i];
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: HearTechDecorations.cardDecoration,
-              child: Row(children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: HearTechColors.coralRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.picture_as_pdf, color: HearTechColors.coralRed),
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Referral ${r.referralId.substring(0, 8).toUpperCase()}', style: HearTechTextStyles.subtitle()),
-                  Text(DateFormat('MMM d, yyyy').format(r.generatedAt), style: HearTechTextStyles.caption()),
-                  Text('Status: GENERATED', style: HearTechTextStyles.caption(
-                      color: r.pdfCloudinaryUrl != null ? HearTechColors.green : HearTechColors.warmOrange)),
-                ])),
-                IconButton(
-                  icon: const Icon(Icons.download, color: HearTechColors.deepTeal),
-                  onPressed: () {
-                    // It uses referral_preview_screen mapped in app_router under childId
-                    context.go(Routes.referralPreview
-                        .replaceFirst(':childId', childId)
-                        .replaceFirst(':referralId', r.referralId));
-                  },
-                ),
-              ]),
+    final parentUid = ref.read(firebaseAuthServiceProvider).uid ?? '';
+
+    return RefreshIndicator(
+      color: HearTechColors.deepTeal,
+      onRefresh: () async {
+        setState(() {});
+      },
+      child: ListView(
+      padding: const EdgeInsets.all(20),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        Text('From Healthcare Worker', style: HearTechTextStyles.sectionHeader()),
+        const SizedBox(height: 4),
+        Text(
+          'Clinical notes your healthcare worker chose to share with you.',
+          style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+        ),
+        const SizedBox(height: 16),
+        StreamBuilder<List<NoteModel>>(
+          stream: firestoreService.streamParentNotes(widget.childId, parentUid),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal)),
+              );
+            }
+            if (snap.hasError) {
+              return _emptyNotesCard('Could not load HCW notes. Try again.');
+            }
+            final notes = snap.data ?? [];
+            if (notes.isEmpty) {
+              return _emptyNotesCard('No notes from your healthcare worker yet.');
+            }
+            return Column(
+              children: notes.map((note) => _noteCard(note, showHcwShare: false)).toList(),
             );
           },
-        );
-      },
+        ),
+        const SizedBox(height: 28),
+        Text('From Teacher', style: HearTechTextStyles.sectionHeader()),
+        const SizedBox(height: 4),
+        Text(
+          'Messages from your child\'s teacher. You can choose to share them with your HCW.',
+          style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+        ),
+        const SizedBox(height: 16),
+        StreamBuilder<List<NoteModel>>(
+          stream: firestoreService.streamTeacherAuthoredNotes(widget.childId, parentUid),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal)),
+              );
+            }
+            if (snap.hasError) {
+              return _emptyNotesCard('Could not load teacher notes. Try again.');
+            }
+            final notes = snap.data ?? [];
+            if (notes.isEmpty) {
+              return _emptyNotesCard('No notes from the teacher yet.');
+            }
+            return Column(
+              children: notes.map((note) {
+                return _noteCard(
+                  note,
+                  showHcwShare: true,
+                  hcwShareValue: note.isVisibleToHcw,
+                  onHcwShareChanged: (share) {
+                    firestoreService.updateNoteHcwShare(
+                      widget.childId,
+                      note.noteId,
+                      share: share,
+                      hcwIds: widget.child.hcwIds,
+                    );
+                  },
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    ),
+    );
+  }
+
+  Widget _emptyNotesCard(String message) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: HearTechDecorations.cardDecoration,
+      child: Text(message,
+          style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
+          textAlign: TextAlign.center),
+    );
+  }
+
+  Widget _noteCard(
+    NoteModel note, {
+    required bool showHcwShare,
+    bool hcwShareValue = false,
+    ValueChanged<bool>? onHcwShareChanged,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: HearTechDecorations.cardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AvatarCircle(name: note.authorName, radius: 16),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(note.authorName, style: HearTechTextStyles.subtitle()),
+                    Text(
+                      DateFormat('MMM d, yyyy • h:mm a').format(note.createdAt),
+                      style: HearTechTextStyles.caption(
+                        color: HearTechColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(note.text, style: HearTechTextStyles.body()),
+          if (showHcwShare && onHcwShareChanged != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.share_outlined, size: 18, color: HearTechColors.deepTeal),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Share with HCW', style: HearTechTextStyles.caption()),
+                ),
+                Switch(
+                  value: hcwShareValue,
+                  activeThumbColor: HearTechColors.deepTeal,
+                  onChanged: onHcwShareChanged,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -696,7 +969,8 @@ class _ReferralsTab extends ConsumerWidget {
 
 class _NotesTab extends ConsumerStatefulWidget {
   final String childId;
-  const _NotesTab({required this.childId});
+  final ChildModel child;
+  const _NotesTab({required this.childId, required this.child});
 
   @override
   ConsumerState<_NotesTab> createState() => _NotesTabState();
@@ -707,6 +981,15 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
   bool _isPublic = false;
   bool _isTeacherVisible = false;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Repair older notes missing denormalized sharing fields.
+    Future.microtask(() {
+      ref.read(firestoreServiceProvider).backfillNoteSharingFields(widget.childId);
+    });
+  }
 
   @override
   void dispose() {
@@ -720,6 +1003,7 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
     try {
       final fs = ref.read(firestoreServiceProvider);
       final user = ref.read(userProfileProvider);
+      final child = await fs.getChild(widget.childId);
       final noteId = fs.generateId(FirestorePaths.notes(widget.childId));
 
       final note = NoteModel(
@@ -730,6 +1014,9 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
         text: _noteCtrl.text.trim(),
         isPublic: _isPublic,
         isTeacherVisible: _isTeacherVisible,
+        parentId: _isPublic ? child?.parentId : null,
+        visibleToTeacherIds:
+            _isTeacherVisible ? List<String>.from(child?.teacherIds ?? []) : const [],
         createdAt: DateTime.now(),
       );
       await fs.addNote(widget.childId, note);
@@ -737,7 +1024,6 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
       // Fire PAR-02 notification if isPublic
       if (_isPublic) {
         try {
-          final child = await fs.getChild(widget.childId);
           if (child != null && child.parentId != null && child.parentId!.isNotEmpty) {
             await ref.read(fastApiServiceProvider).sendNotification(
               uid: child.parentId!,
@@ -753,7 +1039,6 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
       // Fire TCH-04 notification if isTeacherVisible
       if (_isTeacherVisible) {
         try {
-          final child = await fs.getChild(widget.childId);
           if (child != null && child.teacherIds.isNotEmpty) {
             for (final tid in child.teacherIds) {
               await ref.read(fastApiServiceProvider).sendNotification(
@@ -812,24 +1097,56 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
                 activeColor: HearTechColors.deepTeal),
             const Text('Visible to Parent'),
             const SizedBox(width: 16),
-            Checkbox(value: _isTeacherVisible, onChanged: (v) => setState(() => _isTeacherVisible = v ?? false),
-                activeColor: HearTechColors.purple),
-            const Text('Visible to Teacher'),
+            Checkbox(
+              value: _isTeacherVisible,
+              onChanged: widget.child.hasTeacher
+                  ? (v) => setState(() => _isTeacherVisible = v ?? false)
+                  : null,
+              activeColor: HearTechColors.purple,
+            ),
+            Text(
+              'Visible to Teacher',
+              style: HearTechTextStyles.body(
+                color: widget.child.hasTeacher
+                    ? HearTechColors.textPrimary
+                    : HearTechColors.textSecondary,
+              ),
+            ),
           ]),
+          if (!widget.child.hasTeacher)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Link a teacher before sharing notes with them.',
+                style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+              ),
+            ),
           const SizedBox(height: 12),
           HearTechButton(
             label: _isSaving ? 'Saving...' : 'Save Note',
             onPressed: _isSaving ? null : _saveNote,
           ),
           const SizedBox(height: 24),
-          Text('Previous Notes', style: HearTechTextStyles.sectionHeader()),
+          Text('Your Notes', style: HearTechTextStyles.sectionHeader()),
           const SizedBox(height: 12),
 
           StreamBuilder(
-            stream: firestoreService.streamNotes(widget.childId),
+            stream: firestoreService.streamHcwAuthoredNotes(widget.childId),
             builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
                 return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
+              }
+              if (snap.hasError) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: HearTechDecorations.cardDecoration,
+                  child: Center(
+                    child: Text(
+                      'Could not load notes.',
+                      style: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+                    ),
+                  ),
+                );
               }
               final notes = snap.data ?? [];
               if (notes.isEmpty) {
@@ -894,6 +1211,70 @@ class _NotesTabState extends ConsumerState<_NotesTab> {
               );
             },
           ),
+          const SizedBox(height: 24),
+          Text('Shared by Parent (from Teacher)', style: HearTechTextStyles.sectionHeader()),
+          const SizedBox(height: 12),
+          StreamBuilder<List<NoteModel>>(
+            stream: firestoreService.streamHcwSharedTeacherNotes(
+              widget.childId,
+              ref.read(firebaseAuthServiceProvider).uid ?? '',
+            ),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
+              }
+              if (snap.hasError) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: HearTechDecorations.cardDecoration,
+                  child: Center(
+                    child: Text(
+                      'Could not load shared teacher notes.',
+                      style: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+                    ),
+                  ),
+                );
+              }
+              final notes = snap.data ?? [];
+              if (notes.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: HearTechDecorations.cardDecoration,
+                  child: Center(
+                    child: Text(
+                      'No teacher notes shared with you yet.',
+                      style: HearTechTextStyles.caption(),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: notes.map((note) {
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: HearTechColors.purple.withValues(alpha: 0.04),
+                      borderRadius: HearTechDecorations.cardBorderRadius,
+                      border: Border.all(color: HearTechColors.purple.withValues(alpha: 0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(note.authorName, style: HearTechTextStyles.subtitle(color: HearTechColors.purple)),
+                        Text(DateFormat('MMM d, yyyy').format(note.createdAt),
+                            style: HearTechTextStyles.caption()),
+                        const SizedBox(height: 8),
+                        Text(note.text, style: HearTechTextStyles.body()),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -945,6 +1326,14 @@ class _SpeechTab extends ConsumerWidget {
       stream: firestoreService.streamSpeechLogs(childId),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) return const LoadingIndicator();
+        if (snap.hasError) {
+          return Center(
+            child: Text(
+              'Could not load speech sessions.',
+              style: HearTechTextStyles.body(color: HearTechColors.coralRed),
+            ),
+          );
+        }
         final logs = snap.data ?? [];
         
         return Column(
@@ -956,51 +1345,7 @@ class _SpeechTab extends ConsumerWidget {
                 child: HearTechButton(
                   label: 'Start Speech Session',
                   icon: Icons.mic,
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                      ),
-                      builder: (ctx) => Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Select Speech Game', style: HearTechTextStyles.sectionHeader()),
-                            const SizedBox(height: 20),
-                            ListTile(
-                              leading: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(color: HearTechColors.paleTeal, borderRadius: BorderRadius.circular(12)),
-                                child: const Icon(Icons.record_voice_over, color: HearTechColors.deepTeal),
-                              ),
-                              title: Text('Show and Tell', style: HearTechTextStyles.subtitle()),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                Navigator.pop(ctx);
-                                context.go(Routes.showAndTell.replaceFirst(':childId', childId));
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            ListTile(
-                              leading: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(color: HearTechColors.purple.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                                child: const Icon(Icons.hearing, color: HearTechColors.purple),
-                              ),
-                              title: Text('Ling Six Test', style: HearTechTextStyles.subtitle()),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                Navigator.pop(ctx);
-                                context.go(Routes.lingSix.replaceFirst(':childId', childId));
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: () => showSpeechGamePicker(context, childId),
                 ),
               ),
             
@@ -1020,24 +1365,51 @@ class _SpeechTab extends ConsumerWidget {
                       return Container(
                         padding: const EdgeInsets.all(16),
                         decoration: HearTechDecorations.cardDecoration,
-                        child: Row(children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: HearTechColors.deepTeal.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(log.game == 'show_and_tell' ? Icons.record_voice_over : Icons.hearing,
-                                color: HearTechColors.deepTeal),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(log.game == 'show_and_tell' ? 'Show & Tell' : 'Ling Six',
-                                style: HearTechTextStyles.subtitle()),
-                            Text(DateFormat('MMM d, yyyy').format(log.date), style: HearTechTextStyles.caption()),
-                            Text('Score: ${log.score}%', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
-                          ])),
-                        ]),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: HearTechColors.deepTeal.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  log.isShowAndTell ? Icons.record_voice_over : Icons.hearing,
+                                  color: HearTechColors.deepTeal,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(log.gameDisplayName, style: HearTechTextStyles.subtitle()),
+                                Text(DateFormat('MMM d, yyyy').format(log.date), style: HearTechTextStyles.caption()),
+                                Text('Score: ${log.score}%', style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)),
+                              ])),
+                            ]),
+                            if (viewerRole == 'hcw') ...[
+                              const SizedBox(height: 10),
+                              if (log.isShowAndTell) ...[
+                                if (log.expectedWord?.isNotEmpty ?? false)
+                                  Text('Word: ${log.expectedWord}', style: HearTechTextStyles.caption()),
+                                if (log.whisperTranscript?.isNotEmpty ?? false)
+                                  Text('Transcript: ${log.whisperTranscript}', style: HearTechTextStyles.caption()),
+                                if (log.clarityRating?.isNotEmpty ?? false)
+                                  Text('Clarity: ${log.clarityRating}', style: HearTechTextStyles.caption()),
+                              ],
+                              if (log.isLingSix && (log.frequencyFlag?.isNotEmpty ?? false))
+                                Text(
+                                  'Ling result: ${log.frequencyFlag!.toUpperCase()}',
+                                  style: HearTechTextStyles.caption(color: HearTechColors.purple),
+                                ),
+                              if (log.aiAnalysisSummary?.isNotEmpty ?? false)
+                                Text(log.aiAnalysisSummary!, style: HearTechTextStyles.caption()),
+                            ] else ...[
+                              if (log.isShowAndTell && (log.expectedWord?.isNotEmpty ?? false))
+                                Text('Word: ${log.expectedWord}', style: HearTechTextStyles.caption()),
+                            ],
+                          ],
+                        ),
                       );
                     },
                   ),
@@ -1055,23 +1427,65 @@ class _SpeechTab extends ConsumerWidget {
 
 class _ObservationsTab extends ConsumerWidget {
   final String childId;
-  const _ObservationsTab({required this.childId});
+  final String viewerRole;
+  final ChildModel child;
+  const _ObservationsTab({
+    required this.childId,
+    required this.viewerRole,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final firestoreService = ref.read(firestoreServiceProvider);
-    return StreamBuilder(
-      stream: firestoreService.streamTeacherObservations(childId),
+    final uid = ref.read(firebaseAuthServiceProvider).uid ?? '';
+
+    Stream<List<TeacherObservationModel>> stream;
+    if (viewerRole == 'hcw') {
+      stream = firestoreService.streamHcwSharedObservations(childId, uid);
+    } else if (viewerRole == 'teacher') {
+      stream = firestoreService.streamTeacherOwnObservations(childId, uid);
+    } else {
+      stream = firestoreService.streamTeacherObservations(childId);
+    }
+
+    return StreamBuilder<List<TeacherObservationModel>>(
+      stream: stream,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const LoadingIndicator();
-        final obs = snap.data ?? [];
-        if (obs.isEmpty) {
-          return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.visibility_outlined, size: 56, color: HearTechColors.purple.withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('No observations recorded.', style: HearTechTextStyles.subtitle()),
-          ]));
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const LoadingIndicator();
         }
+        if (snap.hasError) {
+          return Center(
+            child: Text(
+              'Could not load observations.',
+              style: HearTechTextStyles.body(color: HearTechColors.coralRed),
+            ),
+          );
+        }
+        final obs = snap.data ?? [];
+
+        if (obs.isEmpty) {
+          final emptyMessage = viewerRole == 'hcw'
+              ? 'No observations shared with you yet.\nParents control what you can see.'
+              : viewerRole == 'parent'
+                  ? 'No classroom observations yet.'
+                  : 'No observations recorded.';
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.visibility_outlined,
+                    size: 56, color: HearTechColors.purple.withValues(alpha: 0.3)),
+                const SizedBox(height: 12),
+                Text(emptyMessage,
+                    style: HearTechTextStyles.subtitle(),
+                    textAlign: TextAlign.center),
+              ],
+            ),
+          );
+        }
+
         return ListView.separated(
           padding: const EdgeInsets.all(20),
           itemCount: obs.length,
@@ -1086,14 +1500,52 @@ class _ObservationsTab extends ConsumerWidget {
                 boxShadow: HearTechDecorations.cardShadow,
                 border: Border(left: BorderSide(color: HearTechColors.purple, width: 4)),
               ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(DateFormat('MMM d, yyyy').format(o.date), style: HearTechTextStyles.subtitle()),
-                const SizedBox(height: 4),
-                if (o.openNote != null && o.openNote!.isNotEmpty)
-                  Text(o.openNote!, style: HearTechTextStyles.caption()),
-                const SizedBox(height: 4),
-                Text('${o.answers.length} questions answered', style: HearTechTextStyles.caption(color: HearTechColors.purple)),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(DateFormat('MMM d, yyyy').format(o.date),
+                      style: HearTechTextStyles.subtitle()),
+                  const SizedBox(height: 4),
+                  if (o.openNote != null && o.openNote!.isNotEmpty)
+                    Text(o.openNote!, style: HearTechTextStyles.body()),
+                  const SizedBox(height: 4),
+                  Text('${o.answers.length} questions answered',
+                      style: HearTechTextStyles.caption(color: HearTechColors.purple)),
+                  if (viewerRole == 'parent') ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Icon(Icons.share_outlined,
+                            size: 18, color: HearTechColors.deepTeal),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('Share with HCW',
+                              style: HearTechTextStyles.caption()),
+                        ),
+                        Switch(
+                          value: o.isVisibleToHcw,
+                          activeThumbColor: HearTechColors.deepTeal,
+                          onChanged: (share) {
+                            firestoreService.updateObservationHcwShare(
+                              childId,
+                              o.obsId,
+                              share: share,
+                              hcwIds: child.hcwIds,
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (viewerRole == 'hcw' && o.isVisibleToHcw)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text('Shared by parent',
+                          style: HearTechTextStyles.caption(
+                              color: HearTechColors.deepTeal)),
+                    ),
+                ],
+              ),
             );
           },
         );
@@ -1109,7 +1561,12 @@ class _ObservationsTab extends ConsumerWidget {
 class _HcwInfoCard extends ConsumerStatefulWidget {
   final String childId;
   final List<String> hcwIds;
-  const _HcwInfoCard({required this.childId, required this.hcwIds});
+  final String viewerRole;
+  const _HcwInfoCard({
+    required this.childId,
+    required this.hcwIds,
+    required this.viewerRole,
+  });
 
   @override
   ConsumerState<_HcwInfoCard> createState() => _HcwInfoCardState();
@@ -1167,7 +1624,37 @@ class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.hcwIds.isEmpty) return const SizedBox.shrink();
+    if (widget.hcwIds.isEmpty) {
+      if (widget.viewerRole != 'parent') return const SizedBox.shrink();
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: HearTechColors.deepTeal.withValues(alpha: 0.08),
+          borderRadius: HearTechDecorations.cardBorderRadius,
+          border: Border.all(color: HearTechColors.deepTeal.withValues(alpha: 0.2)),
+        ),
+        child: Column(children: [
+          const Icon(Icons.medical_services_outlined, size: 36, color: HearTechColors.deepTeal),
+          const SizedBox(height: 12),
+          Text(
+            'Link a healthcare worker to continue clinical care and screenings',
+            style: HearTechTextStyles.body(color: HearTechColors.deepTeal),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          HearTechButton(
+            label: 'Invite Healthcare Worker',
+            icon: Icons.person_add,
+            onPressed: () => context.go(
+              Routes.parentInviteHcw.replaceFirst(':childId', widget.childId),
+            ),
+          ),
+        ]),
+      ).animate().fadeIn(duration: 300.ms);
+    }
+
     final primaryHcwId = widget.hcwIds[0];
 
     return FutureBuilder<UserModel?>(
@@ -1191,17 +1678,18 @@ class _HcwInfoCardState extends ConsumerState<_HcwInfoCard> {
               ])),
             ]),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: _isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : GestureDetector(
-                      onTap: () => _removeHcw(primaryHcwId, hcw.name),
-                      child: Text('Remove HCW',
-                          style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
-                              .copyWith(fontWeight: FontWeight.w700)),
-                    ),
-            ),
+            if (widget.viewerRole == 'parent')
+              Align(
+                alignment: Alignment.centerRight,
+                child: _isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : GestureDetector(
+                        onTap: () => _removeHcw(primaryHcwId, hcw.name),
+                        child: Text('Remove HCW',
+                            style: HearTechTextStyles.caption(color: HearTechColors.coralRed)
+                                .copyWith(fontWeight: FontWeight.w700)),
+                      ),
+              ),
           ]),
         ).animate().fadeIn(duration: 300.ms);
       },

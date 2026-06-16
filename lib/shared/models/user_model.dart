@@ -104,7 +104,8 @@ class UserModel {
       'role': role,
       'name': name,
       'gender': gender,
-      'profilePhotoUrl': profilePhotoUrl,
+      if (profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty)
+        'profilePhotoUrl': profilePhotoUrl,
       'createdAt': Timestamp.fromDate(createdAt),
       'lastLoginAt':
           lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : null,
@@ -118,7 +119,9 @@ class UserModel {
     if (role == 'hcw') {
       data['isVerified'] = isVerified ?? false;
       data['licenseNumber'] = licenseNumber;
-      data['licenseDocUrl'] = licenseDocUrl;
+      if (licenseDocUrl != null && licenseDocUrl!.isNotEmpty) {
+        data['licenseDocUrl'] = licenseDocUrl;
+      }
       data['title'] = title;
       data['specialization'] = specialization;
       data['hospitalName'] = hospitalName;

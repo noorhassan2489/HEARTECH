@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/navigation_utils.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/core/constants/app_constants.dart';
+import 'package:heartech/core/constants/firestore_paths.dart';
 import 'package:heartech/shared/models/child_model.dart';
+import 'package:heartech/shared/models/referral_model.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
 
 /// Referral chat screen — HCW instructs AI to generate referral letters.
@@ -25,11 +27,13 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
   ChildModel? _child;
   bool _isLoadingChild = true;
   bool _isAiLoading = false;
+  bool _isGeneratingReferral = false;
   int? _exportingPdfIndex;
   int? _exportingDocxIndex;
 
-  // Chat messages: {role: 'hcw'|'ai', text: String, isLoading: bool}
+  // Chat messages: {role, text, isLoading, referralText?, referralId?}
   final List<Map<String, dynamic>> _messages = [];
+  String? _activeDraftReferralId;
 
   static const _suggestionChips = [
     'Suggest investigations',
@@ -41,11 +45,11 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
     'Include family history',
     'Recommend genetic counselling',
   ];
+  static const int _maxSessionContextTurns = 4;
 
   @override
   void initState() {
     super.initState();
-    _inputController.addListener(() => setState(() {}));
     _loadChild();
   }
 
@@ -69,10 +73,11 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
           _isLoadingChild = false;
           _messages.add({
             'role': 'ai',
-            'text': 'I have loaded ${_child!.name}\'s profile.\n'
+            'text':
+                'I have loaded ${_child!.name}\'s profile.\n'
                 'Risk Level: $level | Score: $score/100 | Age: $age\n\n'
-                'Tell me what to include in the referral, or tap a suggestion below.',
-            'isLoading': false,
+                'Ask clinical questions or request a referral letter. '
+                'Tap a suggestion below to get started.',
           });
         });
       }
@@ -83,7 +88,6 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
           _messages.add({
             'role': 'ai',
             'text': 'Failed to load child profile: $e',
-            'isLoading': false,
           });
         });
       }
@@ -94,36 +98,54 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty || _isAiLoading || _child == null) return;
 
-    final instruction = text.trim();
+    final rawInstruction = text.trim();
+    if (_isNewReferralRequest(rawInstruction.toLowerCase())) {
+      _activeDraftReferralId = null;
+    }
+    final expandedInstruction = _expandSuggestionInstruction(rawInstruction);
+    final instruction = _resolveInstructionWithContext(
+      rawInstruction: rawInstruction,
+      payloadInstruction: expandedInstruction,
+    );
     _inputController.clear();
 
     setState(() {
-      // HCW bubble
-      _messages.add({'role': 'hcw', 'text': instruction, 'isLoading': false});
-      // Loading bubble
-      _messages.add({'role': 'ai', 'text': '', 'isLoading': true});
+      // Show only what HCW typed; keep any context augmentation internal.
+      _messages.add({'role': 'hcw', 'text': rawInstruction});
+      _isGeneratingReferral = true;
       _isAiLoading = true;
     });
     _scrollToBottom();
 
     try {
       final api = ref.read(fastApiServiceProvider);
-      final user = await ref.read(firestoreServiceProvider)
+      debugPrint('[CHAT] 1. Got API service');
+
+      final user = await ref
+          .read(firestoreServiceProvider)
           .getUser(ref.read(firebaseAuthServiceProvider).uid!);
+      debugPrint('[CHAT] 2. Got user: ${user?.name}');
 
       // Build flags list from medical history
       final flags = <String>[];
       if (_child!.medicalHistory.prematureBirth) flags.add('Premature birth');
       if (_child!.medicalHistory.nicuAdmission) flags.add('NICU admission');
-      if (_child!.medicalHistory.familyHistoryHearingLoss) flags.add('Family history of hearing loss');
+      if (_child!.medicalHistory.familyHistoryHearingLoss) {
+        flags.add('Family history of hearing loss');
+      }
       if (_child!.medicalHistory.earInfectionCount > 0) {
-        flags.add('${_child!.medicalHistory.earInfectionCount} ear infection(s)');
+        flags.add(
+          '${_child!.medicalHistory.earInfectionCount} ear infection(s)',
+        );
       }
 
-      final bracketLabel = AppConstants.ageBracketLabels[_child!.ageBracket] ?? '';
+      final bracketLabel =
+          AppConstants.ageBracketLabels[_child!.ageBracket] ?? '';
+      debugPrint('[CHAT] 3. Sending request...');
 
       final result = await api.generateReferralChat(
         childData: {
+          'childId': widget.childId,
           'name': _child!.name,
           'age': _child!.ageString,
           'gender': _child!.gender,
@@ -140,39 +162,535 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
         hcwInstruction: instruction,
       );
 
+      debugPrint('[CHAT] 4. Got result: ${result.keys.toList()}');
+      debugPrint(
+        '[CHAT] 5. referralText length: ${(result['referralText'] as String?)?.length}',
+      );
+
+      if (!mounted) return;
+
+      final responseText =
+          result['referralText'] as String? ?? 'No response received.';
+      final success = result['success'] as bool? ?? false;
+      final intent = (result['intent'] as String? ?? '').trim();
+      final needsClarification = result['needsClarification'] as bool? ?? false;
+      _applyAiResponse(
+        responseText: responseText,
+        success: success,
+        intent: intent,
+        needsClarification: needsClarification,
+      );
+    } catch (e, stack) {
+      debugPrint('[CHAT] ERROR: $e');
+      debugPrint('[CHAT] STACK: $stack');
       if (mounted) {
         setState(() {
-          // Remove loading bubble
-          _messages.removeWhere((m) => m['isLoading'] == true);
-          // Add AI response
-          _messages.add({
-            'role': 'ai',
-            'text': result['referralText'] as String? ?? 'No response received.',
-            'isLoading': false,
-          });
-          _isAiLoading = false;
-        });
-        _scrollToBottom();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _messages.removeWhere((m) => m['isLoading'] == true);
           _messages.add({
             'role': 'ai',
             'text': 'Error generating referral: $e',
-            'isLoading': false,
           });
-          _isAiLoading = false;
         });
         _scrollToBottom();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingReferral = false;
+          _isAiLoading = false;
+        });
+        debugPrint(
+          '[CHAT] 6. Done — messages=${_messages.length}, '
+          'generating=$_isGeneratingReferral',
+        );
       }
     }
   }
 
+  bool _isNewReferralRequest(String lower) {
+    return lower.contains('generate referral') ||
+        lower.contains('create referral') ||
+        lower.contains('make referral') ||
+        lower.contains('write referral') ||
+        lower.contains('produce referral');
+  }
+
+  bool _looksLikeReferToUpdate(String lower) {
+    return RegExp(r'\brefer(?:ral)?\s+to\b').hasMatch(lower) ||
+        RegExp(r'\brefer(?:ral)?\s+(?:this|it|the)\s+to\b').hasMatch(lower) ||
+        RegExp(r'\bsend\s+(?:this|it|the)\s+to\b').hasMatch(lower) ||
+        RegExp(r'\badd\s+refer(?:ral)?\s+to\b').hasMatch(lower) ||
+        RegExp(r'\binclude\s+refer\s+to\b').hasMatch(lower) ||
+        (lower.contains('sorry') && lower.contains('refer'));
+  }
+
+  bool _mentionsReferralDocument(String lower) {
+    return lower.contains('referral') ||
+        lower.contains('refferal') ||
+        lower.contains('referal') ||
+        lower.contains('the letter');
+  }
+
+  bool _looksLikeMedicineSectionEdit(String lower) {
+    return RegExp(
+          r'\b(?:add|include|put|insert|remove)\b.+\b(?:medicine|medicines|medication|meds)\b',
+        ).hasMatch(lower) ||
+        RegExp(
+          r'\b(?:medicine|medicines|medication|meds)\b.+\b(?:add|include|remove)\b',
+        ).hasMatch(lower);
+  }
+
+  bool _looksLikeImperativeReferralEdit(String lower) {
+    return lower.startsWith('add ') ||
+        lower.startsWith('include ') ||
+        lower.startsWith('remove ') ||
+        lower.startsWith('update ') ||
+        lower.startsWith('edit ') ||
+        lower.startsWith('change ') ||
+        lower.startsWith('also ') ||
+        lower.startsWith('put ') ||
+        lower.startsWith('insert ');
+  }
+
+  bool _looksLikeReferralEdit(String lower) {
+    final patterns = [
+      r'\b(?:add|include|edit|update|change|modify|remove)\b.*\brefer(?:r?al|ral|al)\b',
+      r'\brefer(?:r?al|ral|al)\b.*\b(?:add|include|edit|update|change|modify)\b',
+      r'\bin (?:the|this) refer(?:r?al|ral|al)\b',
+      r'\bmake it urgent\b',
+      r'\badd (?:more )?(?:medicine|medication|meds)\b',
+      r'\bsuggest investigations?\b',
+      r'\badd speech\b',
+      r'\badd that\b',
+      r'\balso (?:have|has)\b',
+      r'\b(?:add|include) precaution\b',
+    ];
+    return patterns.any((pattern) => RegExp(pattern).hasMatch(lower));
+  }
+
+  bool _isPureClinicalQuestion(String lower) {
+    if (_mentionsReferralDocument(lower) ||
+        _looksLikeMedicineSectionEdit(lower) ||
+        _looksLikeImperativeReferralEdit(lower)) {
+      return false;
+    }
+    return (lower.startsWith('what ') ||
+            lower.startsWith('could ') ||
+            lower.startsWith('can ') ||
+            lower.startsWith('why ') ||
+            lower.startsWith('how ') ||
+            lower.startsWith('when ') ||
+            lower.startsWith('where ') ||
+            lower.startsWith('who ') ||
+            lower.startsWith('is ') ||
+            lower.startsWith('does ') ||
+            lower.startsWith('should ')) &&
+        !lower.contains('referral');
+  }
+
+  bool _shouldAttachPriorReferral(String lower) {
+    if (_lastReferralLetter() == null) return false;
+    if (_isNewReferralRequest(lower)) return false;
+    if (_isPureClinicalQuestion(lower)) return false;
+    return _looksLikeReferToUpdate(lower) ||
+        _looksLikeReferralEdit(lower) ||
+        _looksLikeMedicineSectionEdit(lower) ||
+        _looksLikeImperativeReferralEdit(lower) ||
+        (_mentionsReferralDocument(lower) &&
+            (lower.contains('add') ||
+                lower.contains('include') ||
+                lower.contains('edit') ||
+                lower.contains('update') ||
+                lower.contains('change') ||
+                lower.contains('remove')));
+  }
+
+  String? _lastReferralLetter() {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final msg = _messages[i];
+      if (msg['referralText'] is String) {
+        final txt = (msg['referralText'] as String).trim();
+        if (txt.isNotEmpty) return txt;
+      }
+    }
+    return null;
+  }
+
+  String _buildReferralEditContext(String instruction) {
+    final prior = _lastReferralLetter();
+    if (prior == null) return instruction;
+    return '$instruction\n\nConversation context:\nImmediate prior referral letter:\n$prior';
+  }
+
+  bool _wantsFullSessionContext(String lower) {
+    return lower.contains('all of this') ||
+        lower.contains('all of these') ||
+        lower.contains('everything discussed') ||
+        lower.contains('everything above') ||
+        lower.contains('everything we');
+  }
+
+  bool _needsImmediateContext(String lower) {
+    final asksAboutThis =
+        lower.contains(' for this') ||
+        lower.contains(' for that') ||
+        lower.contains(' for it') ||
+        lower.contains('medicine for this') ||
+        lower.contains('any medicine for this') ||
+        (lower.contains('medicine') && lower.contains('this')) ||
+        (lower.contains('precaution') && lower.contains('this'));
+    final clarifies =
+        lower.startsWith('no ') ||
+        lower.startsWith('no i mean') ||
+        lower.contains("that's not") ||
+        lower.contains('not what i said') ||
+        lower.startsWith('bro ');
+    return asksAboutThis || clarifies;
+  }
+
+  bool _isMeaningFollowUp(String lower) {
+    final meaningPattern = RegExp(r'\bwhat does\b.*\bmean(s)?\b');
+    return meaningPattern.hasMatch(lower) ||
+        lower.startsWith('can you explain') ||
+        lower.startsWith('please explain');
+  }
+
+  bool _needsFollowUpContext(String lower) {
+    return _isMeaningFollowUp(lower) ||
+        lower.contains('what do they mean') ||
+        lower.contains('what could these') ||
+        lower.contains('what do these mean') ||
+        lower.contains('what does that mean') ||
+        lower.contains('could the child') ||
+        (lower.contains('could ') && lower.contains(' have ')) ||
+        lower.contains('for relief') ||
+        lower.contains('proper medicine') ||
+        lower.contains('can this') ||
+        lower.contains('is this') ||
+        lower.startsWith('okay could') ||
+        lower.startsWith('okay so') ||
+        lower.startsWith('so ') ||
+        lower.startsWith('then ') ||
+        lower.contains('any test') ||
+        lower.contains("test's") ||
+        lower.contains('tests or') ||
+        lower.contains('test or') ||
+        (lower.contains('medication') && lower.contains(' or '));
+  }
+
+  bool _isReusableAiTurn(Map<String, dynamic> msg) {
+    final role = msg['role'];
+    final status = (msg['status'] as String? ?? '').toLowerCase();
+    final success = msg['success'] == true;
+    final needsClarification = msg['needsClarification'] == true;
+    if (role != 'ai' || !success || needsClarification) return false;
+    if (status == 'error' || status == 'clarify') return false;
+    return status == 'answer' || status == 'referral';
+  }
+
+  bool _isLowValueAnswer(String text) {
+    final lower = text.toLowerCase();
+    final markers = [
+      "i couldn't produce a reliable clinical answer",
+      "could you rephrase with the child's key symptoms",
+      'based on the current question, perform focused otoscopy',
+      'arrange ent/audiology review if concerns persist',
+    ];
+    return markers.any(lower.contains);
+  }
+
+  ({String? question, String? answer}) _lastExchangeBefore(String instruction) {
+    final exclude = instruction.toLowerCase();
+    String? lastQuestion;
+    String? lastAnswer;
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final msg = _messages[i];
+      if (lastAnswer == null &&
+          _isReusableAiTurn(msg) &&
+          msg['answerText'] is String &&
+          (msg['status'] as String? ?? '').toLowerCase() == 'answer') {
+        final txt = (msg['answerText'] as String).trim();
+        if (txt.isNotEmpty && !_isLowValueAnswer(txt)) {
+          lastAnswer = txt;
+        }
+      }
+      if (lastQuestion == null &&
+          msg['role'] == 'hcw' &&
+          msg['text'] is String) {
+        final txt = (msg['text'] as String).trim();
+        if (txt.isNotEmpty && txt.toLowerCase() != exclude) {
+          lastQuestion = txt;
+        }
+      }
+      if (lastQuestion != null && lastAnswer != null) break;
+    }
+    return (question: lastQuestion, answer: lastAnswer);
+  }
+
+  String _compactContextText(String input) {
+    final singleLine = input.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (singleLine.length <= 220) return singleLine;
+    return '${singleLine.substring(0, 220)}...';
+  }
+
+  String _buildImmediateContext(String instruction) {
+    final last = _lastExchangeBefore(instruction);
+    if (last.question == null && last.answer == null) return instruction;
+    final parts = <String>[
+      if (last.question != null)
+        'Immediate prior HCW question: ${last.question}',
+      if (last.answer != null)
+        'Immediate prior AI answer: ${_compactContextText(last.answer!)}',
+    ];
+    return '$instruction\n\nConversation context:\n${parts.join('\n')}';
+  }
+
+  List<String> _priorHcwQuestions({required String excludeInstruction}) {
+    final exclude = excludeInstruction.toLowerCase();
+    final questions = <String>[];
+    for (var i = 0; i < _messages.length; i++) {
+      final msg = _messages[i];
+      if (msg['role'] == 'hcw' && msg['text'] is String) {
+        final txt = (msg['text'] as String).trim();
+        if (txt.isEmpty || txt.toLowerCase() == exclude) continue;
+        var hasReusableAi = false;
+        for (var j = i + 1; j < _messages.length; j++) {
+          final next = _messages[j];
+          if (next['role'] == 'hcw') break;
+          if (_isReusableAiTurn(next)) {
+            hasReusableAi = true;
+            break;
+          }
+        }
+        if (hasReusableAi) {
+          questions.add(txt);
+        }
+      }
+    }
+    if (questions.length <= _maxSessionContextTurns) {
+      return questions;
+    }
+    return questions.sublist(questions.length - _maxSessionContextTurns);
+  }
+
+  String _resolveInstructionWithContext({
+    required String rawInstruction,
+    required String payloadInstruction,
+  }) {
+    final lower = rawInstruction.toLowerCase();
+    final priorQuestions = _priorHcwQuestions(excludeInstruction: rawInstruction);
+
+    if (_shouldAttachPriorReferral(lower)) {
+      return _buildReferralEditContext(payloadInstruction);
+    }
+
+    if (_needsImmediateContext(lower)) {
+      return _buildImmediateContext(payloadInstruction);
+    }
+
+    if (_wantsFullSessionContext(lower)) {
+      if (priorQuestions.isEmpty) return payloadInstruction;
+      final session = priorQuestions.map((q) => '- $q').join('\n');
+      return '$payloadInstruction\n\nConversation context:\nPrior HCW questions in this session:\n$session';
+    }
+
+    if (!_needsFollowUpContext(lower)) return payloadInstruction;
+    // Follow-up context: attach only the immediate prior exchange.
+    return _buildImmediateContext(payloadInstruction);
+  }
+
+  String _expandSuggestionInstruction(String instruction) {
+    final lower = instruction.toLowerCase();
+    switch (lower) {
+      case 'suggest investigations':
+        return '$instruction for this child based on documented profile and screening findings.';
+      case 'make it urgent':
+        return '$instruction for this child if clinically indicated, with brief reasoning.';
+      case 'add speech therapy':
+        return '$instruction in the care plan only when clinically indicated.';
+      case 'include ear infection history':
+        return '$instruction for this child where relevant to the current clinical question.';
+      case 'recommend abr test':
+        return '$instruction for this child only if clinically appropriate for age and findings.';
+      case 'add precautions for parent':
+        return '$instruction for this child with concise safety-focused advice.';
+      case 'include family history':
+        return '$instruction where relevant to this child and current concern.';
+      case 'recommend genetic counselling':
+        return '$instruction only if supported by the child profile and red flags.';
+      default:
+        return instruction;
+    }
+  }
+
+  String _referralBubblePreview(String full) {
+    final trimmed = full.trim();
+    if (trimmed.isEmpty) {
+      return 'Referral draft is ready. Open the letter to review the full document.';
+    }
+    if (trimmed.length <= 360) return trimmed;
+    final cut = trimmed.substring(0, 360);
+    final lastBreak = cut.lastIndexOf('\n');
+    if (lastBreak > 180) {
+      return '${cut.substring(0, lastBreak).trim()}...\n\nOpen the referral letter below for the full document.';
+    }
+    return '$cut...\n\nOpen the referral letter below for the full document.';
+  }
+
+  void _applyAiResponse({
+    required String responseText,
+    required bool success,
+    required String intent,
+    required bool needsClarification,
+  }) {
+    final normalizedIntent = intent.toLowerCase().trim();
+    final clarificationFallbackText =
+        responseText.toLowerCase().contains(
+          "i couldn't produce a reliable clinical answer",
+        ) ||
+        responseText.toLowerCase().contains(
+          "could you rephrase with the child's key symptoms",
+        ) ||
+        responseText.toLowerCase().contains('the hcw is asking') ||
+        responseText.toLowerCase().contains('at most 10 brief sentences') ||
+        responseText.toLowerCase().contains('mode: clinical') ||
+        responseText.toLowerCase().contains('child profile:');
+    final effectiveNeedsClarification =
+        needsClarification || clarificationFallbackText;
+    final status = !success || normalizedIntent == 'error'
+        ? 'error'
+        : effectiveNeedsClarification || normalizedIntent == 'clarify'
+        ? 'clarify'
+        : normalizedIntent == 'referral'
+        ? 'referral'
+        : 'answer';
+    final isReferral = status == 'referral';
+    final bubbleText = switch (status) {
+      'error' => responseText.trim().isNotEmpty
+          ? responseText
+          : 'Request failed — please try again.',
+      'clarify' => responseText,
+      'referral' => _referralBubblePreview(responseText),
+      _ => responseText,
+    };
+
+    setState(() {
+      final payload = <String, dynamic>{
+        'role': 'ai',
+        'text': bubbleText,
+        'answerText': responseText,
+        'intent': normalizedIntent,
+        'status': status,
+        'needsClarification': effectiveNeedsClarification,
+        'success': success,
+      };
+      if (isReferral) {
+        payload['referralText'] = responseText;
+        if (_activeDraftReferralId != null) {
+          payload['referralId'] = _activeDraftReferralId;
+        }
+      }
+      _messages.add(payload);
+    });
+    _scrollToBottom();
+
+    if (isReferral && success) {
+      _persistReferralDraft(responseText);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(switch (status) {
+            'error' => 'Request failed. Check details.',
+            'clarify' => 'Additional clinical details required.',
+            'referral' => 'Referral draft ready — review the letter below.',
+            _ => 'Clinical answer ready.',
+          }),
+          backgroundColor: status == 'error' || status == 'clarify'
+              ? Colors.orange.shade700
+              : HearTechColors.green,
+        ),
+      );
+    });
+  }
+
+  Future<void> _persistReferralDraft(String letterText) async {
+    if (_child == null) return;
+    final uid = ref.read(firebaseAuthServiceProvider).uid;
+    if (uid == null || uid.isEmpty) return;
+
+    final fs = ref.read(firestoreServiceProvider);
+    final title = ReferralModel.titleFromLetter(letterText);
+
+    try {
+      if (_activeDraftReferralId != null) {
+        await fs.updateReferralDraft(
+          widget.childId,
+          _activeDraftReferralId!,
+          letterText: letterText,
+          title: title,
+        );
+      } else {
+        final referralId =
+            fs.generateId(FirestorePaths.referrals(widget.childId));
+        final referral = ReferralModel(
+          referralId: referralId,
+          generatedByHcwId: uid,
+          generatedAt: DateTime.now(),
+          letterText: letterText,
+          screeningId: 'assistant',
+          status: ReferralStatus.draft,
+          title: title,
+        );
+        await fs.addReferral(widget.childId, referral);
+        _activeDraftReferralId = referralId;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        for (var i = _messages.length - 1; i >= 0; i--) {
+          final msg = _messages[i];
+          if (msg['role'] == 'ai' && msg['referralText'] != null) {
+            _messages[i] = {
+              ...msg,
+              'referralId': _activeDraftReferralId,
+            };
+            break;
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('[CHAT] Failed to persist referral draft: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save draft to profile: $e')),
+        );
+      }
+    }
+  }
+
+  void _openReferralLetterPage(String responseText) {
+    if (!mounted) return;
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => _ReferralLetterPage(
+          childName: _child?.name ?? 'Patient',
+          letterText: responseText,
+        ),
+      ),
+    );
+  }
+
   // ── Export PDF ──────────────────────────────────────────────────────────
+  String _referralBodyForMessage(int messageIndex) {
+    final msg = _messages[messageIndex];
+    return (msg['referralText'] as String?) ?? (msg['text'] as String);
+  }
+
   Future<void> _exportPdf(int messageIndex) async {
-    final text = _messages[messageIndex]['text'] as String;
+    final text = _referralBodyForMessage(messageIndex);
     setState(() => _exportingPdfIndex = messageIndex);
 
     try {
@@ -180,20 +698,22 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
       final result = await api.exportReferralPdf(
         referralText: text,
         childName: _child?.name ?? 'Unknown',
+        childId: widget.childId,
       );
 
       final pdfUrl = result['pdfUrl'] as String? ?? '';
+      final filename =
+          result['filename'] as String? ??
+          'referral_${_child?.name ?? "patient"}.pdf';
 
-      // Fire PAR-08 notification to linked parent
-      if (_child?.parentId != null && _child!.parentId!.isNotEmpty) {
+      if (_activeDraftReferralId != null && pdfUrl.isNotEmpty) {
         try {
-          await api.sendNotification(
-            uid: _child!.parentId!,
-            type: 'PAR-08',
-            title: 'Referral Generated',
-            body: 'A referral letter has been generated for ${_child!.name}.',
-            relatedChildId: widget.childId,
-          );
+          await ref.read(firestoreServiceProvider).updateReferralDraft(
+                widget.childId,
+                _activeDraftReferralId!,
+                letterText: text,
+                pdfCloudinaryUrl: pdfUrl,
+              );
         } catch (_) {}
       }
 
@@ -204,11 +724,20 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
             backgroundColor: HearTechColors.green,
           ),
         );
-        // Open the PDF URL
         if (pdfUrl.isNotEmpty) {
-          final uri = Uri.parse(pdfUrl);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          try {
+            final localPath = await api.downloadExportToTemp(
+              fileUrl: pdfUrl,
+              filename: filename,
+            );
+            await Share.shareXFiles([
+              XFile(localPath),
+            ], text: 'HearTech referral PDF');
+          } catch (_) {
+            final uri = Uri.parse(pdfUrl);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
           }
         }
       }
@@ -227,7 +756,7 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
 
   // ── Export DOCX ────────────────────────────────────────────────────────
   Future<void> _exportDocx(int messageIndex) async {
-    final text = _messages[messageIndex]['text'] as String;
+    final text = _referralBodyForMessage(messageIndex);
     setState(() => _exportingDocxIndex = messageIndex);
 
     try {
@@ -235,12 +764,22 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
       final result = await api.exportReferralDocx(
         referralText: text,
         childName: _child?.name ?? 'Unknown',
+        childId: widget.childId,
       );
 
       final docxUrl = result['docxUrl'] as String? ?? '';
+      final filename =
+          result['filename'] as String? ??
+          'referral_${_child?.name ?? "patient"}.docx';
 
       if (mounted && docxUrl.isNotEmpty) {
-        await Share.share('Here is the HearTech Referral Document: $docxUrl');
+        final localPath = await api.downloadExportToTemp(
+          fileUrl: docxUrl,
+          filename: filename,
+        );
+        await Share.shareXFiles([
+          XFile(localPath),
+        ], text: 'HearTech referral document');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -286,16 +825,22 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
         elevation: 1,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: HearTechColors.deepTeal),
-          onPressed: () => context.pop(),
+          onPressed: () => closeReferralToChildProfile(
+            context,
+            widget.childId,
+            userRole: ref.read(userRoleProvider),
+          ),
         ),
         title: Text(
-          'Generate Referral — $childName',
+          'Clinical Assistant — $childName',
           style: HearTechTextStyles.appBarTitle(color: HearTechColors.deepTeal),
         ),
         centerTitle: false,
       ),
       body: _isLoadingChild
-          ? const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal))
+          ? const Center(
+              child: CircularProgressIndicator(color: HearTechColors.deepTeal),
+            )
           : Column(
               children: [
                 // ── Chat messages ────────────────────────────────────────
@@ -303,8 +848,22 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
                   child: ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    itemCount: _messages.length,
-                    itemBuilder: (_, i) => _buildMessage(i),
+                    itemCount:
+                        _messages.length + (_isGeneratingReferral ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index < _messages.length) {
+                        return KeyedSubtree(
+                          key: ValueKey(
+                            'msg-$index-${_messages[index]['role']}',
+                          ),
+                          child: _buildMessage(index),
+                        );
+                      }
+                      return const KeyedSubtree(
+                        key: ValueKey('generating'),
+                        child: _LoadingBubble(),
+                      );
+                    },
                   ),
                 ),
 
@@ -322,17 +881,15 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
   Widget _buildMessage(int index) {
     final msg = _messages[index];
     final isHcw = msg['role'] == 'hcw';
-    final isLoading = msg['isLoading'] == true;
     final text = msg['text'] as String;
     final screenWidth = MediaQuery.of(context).size.width;
-
-    if (isLoading) return _buildLoadingBubble();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
-        crossAxisAlignment:
-            isHcw ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isHcw
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Container(
             constraints: BoxConstraints(
@@ -357,82 +914,51 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
                       ),
                     ],
             ),
-            child: SelectableText(
+            child: Text(
               text,
               style: HearTechTextStyles.body(
-                color: isHcw
-                    ? HearTechColors.white
-                    : const Color(0xFF1A2E35),
+                color: isHcw ? HearTechColors.white : const Color(0xFF1A2E35),
               ).copyWith(fontSize: 14),
             ),
           ),
 
-          // Export buttons below AI messages (not the initial greeting)
-          if (!isHcw && index > 0) ...[
+          if (!isHcw && index > 0 && msg['referralText'] != null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () =>
+                  _openReferralLetterPage(msg['referralText'] as String),
+              icon: const Icon(Icons.article_outlined, size: 18),
+              label: const Text('Open referral letter'),
+              style: TextButton.styleFrom(
+                foregroundColor: HearTechColors.deepTeal,
+              ),
+            ),
             const SizedBox(height: 8),
             _buildExportButtons(index),
           ],
-        ],
-      ),
-    );
-  }
 
-  // ── Loading bubble (animated dots) ─────────────────────────────────────
-  Widget _buildLoadingBubble() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: HearTechColors.white,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(4),
-              topRight: Radius.circular(16),
-              bottomLeft: Radius.circular(16),
-              bottomRight: Radius.circular(16),
+          if (!isHcw &&
+              index > 0 &&
+              msg['answerText'] != null &&
+              msg['referralText'] == null &&
+              (msg['text'] as String) != (msg['answerText'] as String)) ...[
+            const SizedBox(height: 8),
+            Container(
+              constraints: BoxConstraints(maxWidth: screenWidth * 0.9),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF2FAFA),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                msg['answerText'] as String,
+                style: HearTechTextStyles.body(
+                  color: const Color(0xFF1A2E35),
+                ).copyWith(fontSize: 14),
+              ),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Three animated dots
-              ...List.generate(3, (i) {
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: HearTechColors.deepTeal.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
-                  ),
-                )
-                    .animate(onPlay: (c) => c.repeat(reverse: true))
-                    .scale(
-                      begin: const Offset(0.6, 0.6),
-                      end: const Offset(1.2, 1.2),
-                      duration: 600.ms,
-                      delay: Duration(milliseconds: i * 200),
-                    );
-              }),
-              const SizedBox(width: 10),
-              Text(
-                'Generating referral...',
-                style: HearTechTextStyles.caption(
-                  color: HearTechColors.textSecondary,
-                ).copyWith(fontStyle: FontStyle.italic),
-              ),
-            ],
-          ),
-        ),
+          ],
+        ],
       ),
     );
   }
@@ -442,62 +968,44 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
     final isPdfLoading = _exportingPdfIndex == index;
     final isDocxLoading = _exportingDocxIndex == index;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        // PDF button
-        SizedBox(
-          height: 44,
-          child: ElevatedButton.icon(
-            onPressed: isPdfLoading ? null : () => _exportPdf(index),
-            icon: isPdfLoading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: HearTechColors.white,
-                    ),
-                  )
-                : const Icon(Icons.picture_as_pdf, size: 18),
-            label: const Text('Export as PDF'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: HearTechColors.deepTeal,
-              foregroundColor: HearTechColors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              textStyle: HearTechTextStyles.caption()
-                  .copyWith(fontWeight: FontWeight.w600),
-            ),
+        ElevatedButton.icon(
+          onPressed: isPdfLoading ? null : () => _exportPdf(index),
+          icon: isPdfLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: HearTechColors.white,
+                  ),
+                )
+              : const Icon(Icons.picture_as_pdf, size: 18),
+          label: const Text('Export PDF'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: HearTechColors.deepTeal,
+            foregroundColor: HearTechColors.white,
           ),
         ),
-        const SizedBox(width: 8),
-        // DOCX button
-        SizedBox(
-          height: 44,
-          child: OutlinedButton.icon(
-            onPressed: isDocxLoading ? null : () => _exportDocx(index),
-            icon: isDocxLoading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: HearTechColors.deepTeal,
-                    ),
-                  )
-                : const Icon(Icons.description, size: 18),
-            label: const Text('Export as Word'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: HearTechColors.deepTeal,
-              side: const BorderSide(color: HearTechColors.deepTeal),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              textStyle: HearTechTextStyles.caption()
-                  .copyWith(fontWeight: FontWeight.w600),
-            ),
+        OutlinedButton.icon(
+          onPressed: isDocxLoading ? null : () => _exportDocx(index),
+          icon: isDocxLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: HearTechColors.deepTeal,
+                  ),
+                )
+              : const Icon(Icons.description, size: 18),
+          label: const Text('Export Word'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: HearTechColors.deepTeal,
+            side: const BorderSide(color: HearTechColors.deepTeal),
           ),
         ),
       ],
@@ -528,7 +1036,10 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
                 labelStyle: HearTechTextStyles.caption(
                   color: HearTechColors.deepTeal,
                 ).copyWith(fontWeight: FontWeight.w600),
-                side: const BorderSide(color: HearTechColors.deepTeal, width: 0.5),
+                side: const BorderSide(
+                  color: HearTechColors.deepTeal,
+                  width: 0.5,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -542,9 +1053,6 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
 
   // ── Input area ─────────────────────────────────────────────────────────
   Widget _buildInputArea() {
-    final canSend =
-        _inputController.text.trim().isNotEmpty && !_isAiLoading;
-
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       decoration: BoxDecoration(
@@ -559,40 +1067,142 @@ class _ReferralChatScreenState extends ConsumerState<ReferralChatScreen> {
       ),
       child: SafeArea(
         top: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: HearTechInputField(
-                controller: _inputController,
-                label: '',
-                hint: 'Tell the AI what to include...',
-                maxLines: 1,
-                textInputAction: TextInputAction.send,
-                onFieldSubmitted: canSend ? (_) => _sendMessage(_inputController.text) : null,
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: canSend
-                  ? () => _sendMessage(_inputController.text)
-                  : null,
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: canSend
-                      ? HearTechColors.deepTeal
-                      : HearTechColors.deepTeal.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
+        child: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _inputController,
+          builder: (context, value, _) {
+            final canSend = value.text.trim().isNotEmpty && !_isAiLoading;
+            return Row(
+              children: [
+                Expanded(
+                  child: HearTechInputField(
+                    controller: _inputController,
+                    label: '',
+                    hint: 'Tell the AI what to include...',
+                    maxLines: 1,
+                    textInputAction: TextInputAction.send,
+                    onFieldSubmitted: canSend
+                        ? (_) => _sendMessage(_inputController.text)
+                        : null,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.arrow_upward,
-                  color: HearTechColors.white,
-                  size: 22,
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: canSend
+                      ? () => _sendMessage(_inputController.text)
+                      : null,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: canSend
+                          ? HearTechColors.deepTeal
+                          : HearTechColors.deepTeal.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_upward,
+                      color: HearTechColors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen referral letter — avoids bottom-sheet layout issues on the chat screen.
+class _ReferralLetterPage extends StatelessWidget {
+  final String childName;
+  final String letterText;
+
+  const _ReferralLetterPage({
+    required this.childName,
+    required this.letterText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: HearTechColors.white,
+      appBar: AppBar(
+        backgroundColor: HearTechColors.white,
+        elevation: 1,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: HearTechColors.deepTeal),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Referral — $childName',
+          style: HearTechTextStyles.appBarTitle(color: HearTechColors.deepTeal),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Text(
+          letterText,
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.6,
+            color: Color(0xFF1A2E35),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingBubble extends StatelessWidget {
+  const _LoadingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: HearTechColors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(4),
+              topRight: Radius.circular(16),
+              bottomLeft: Radius.circular(16),
+              bottomRight: Radius.circular(16),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: HearTechColors.deepTeal.withValues(alpha: 0.6),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Text(
+                'Analyzing your clinical request...',
+                style: HearTechTextStyles.caption(
+                  color: HearTechColors.textSecondary,
+                ).copyWith(fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
         ),
       ),
     );

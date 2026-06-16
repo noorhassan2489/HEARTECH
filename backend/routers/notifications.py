@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from services.notification_service import NotificationService
+from auth_dependency import verify_firebase_token
 
 router = APIRouter()
 
@@ -307,7 +308,7 @@ async def trigger_tch_08_removed(teacher_uid: str, child_name: str, child_id: st
 # ─── REST ENDPOINTS ──────────────────────────────────────────────────────────
 
 @router.post("/notifications/send")
-async def send_notification(request: Request):
+async def send_notification(request: Request, token: dict = Depends(verify_firebase_token)):
     """Generic endpoint to trigger a notification."""
     data = await request.json()
     await NotificationService.send(
@@ -320,11 +321,12 @@ async def send_notification(request: Request):
         related_child_id=data.get("relatedChildId"),
         related_invite_id=data.get("relatedInviteId"),
         related_referral_id=data.get("relatedReferralId"),
+        skip_push=data.get("skipPush", False),
     )
     return {"status": "sent"}
 
 
 @router.get("/notifications/test")
-async def test_notifications():
+async def test_notifications(token: dict = Depends(verify_firebase_token)):
     """Health check endpoint."""
     return {"status": "Notification system active", "triggers": 28}

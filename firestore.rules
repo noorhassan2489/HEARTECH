@@ -30,17 +30,17 @@ service cloud.firestore {
       return isSignedIn() && getUserRole() == 'teacher';
     }
 
+    function childData(childId) {
+      return get(/databases/$(database)/documents/children/$(childId)).data;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // USERS — /users/{uid}
     // ═══════════════════════════════════════════════════════════════════════
 
     match /users/{uid} {
-      // Users can read their own profile; HCWs/teachers can read other profiles
-      // (needed for child profile screens showing parent/HCW info)
       allow read: if isSignedIn();
-      // Users can create/update their own profile
       allow create, update: if isOwner(uid);
-      // No deletes
       allow delete: if false;
     }
 
@@ -49,17 +49,14 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════════════
 
     match /children/{childId} {
-      // HCW can read children they created or are attached to
       allow read: if isSignedIn() && (
         request.auth.uid in resource.data.hcwIds ||
         resource.data.parentId == request.auth.uid ||
         request.auth.uid in resource.data.get('teacherIds', [])
       );
 
-      // Only HCW can create children
       allow create: if isHCW();
 
-      // HCW, Parent, and Teacher can update (with field restrictions)
       allow update: if isSignedIn() && (
         request.auth.uid in resource.data.hcwIds ||
         resource.data.parentId == request.auth.uid ||
@@ -71,13 +68,13 @@ service cloud.firestore {
       // ── Screenings subcollection ──────────────────────────────────────
       match /screenings/{screeningId} {
         allow read: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+          request.auth.uid in childData(childId).hcwIds ||
+          childData(childId).parentId == request.auth.uid ||
+          request.auth.uid in childData(childId).get('teacherIds', [])
         );
         allow create: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid
+          request.auth.uid in childData(childId).hcwIds ||
+          childData(childId).parentId == request.auth.uid
         );
         allow update, delete: if false;
       }
@@ -85,35 +82,69 @@ service cloud.firestore {
       // ── Teacher Observations subcollection ────────────────────────────
       match /teacherObservations/{obsId} {
         allow read: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+          (
+            isTeacher() &&
+            resource.data.teacherUid == request.auth.uid &&
+            request.auth.uid in childData(childId).get('teacherIds', [])
+          ) ||
+          (
+            isParent() &&
+            childData(childId).parentId == request.auth.uid
+          ) ||
+          (
+            isHCW() &&
+            resource.data.isVisibleToHcw == true &&
+            request.auth.uid in resource.data.get('visibleToHcwIds', [])
+          )
         );
         allow create: if isTeacher() &&
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', []);
-        allow update, delete: if false;
+          request.auth.uid in childData(childId).get('teacherIds', []);
+        allow update: if isParent() &&
+          childData(childId).parentId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['isVisibleToHcw', 'visibleToHcwIds']);
+        allow delete: if false;
       }
 
       // ── Referrals subcollection ───────────────────────────────────────
       match /referrals/{referralId} {
         allow read: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid
+          request.auth.uid in childData(childId).hcwIds ||
+          (
+            resource.data.get('parentId', '') == request.auth.uid &&
+            resource.data.get('isVisibleToParent', false) == true
+          ) ||
+          request.auth.uid in resource.data.get('visibleToTeacherIds', [])
         );
-        allow create: if isHCW();
-        allow update, delete: if false;
+        allow create: if isHCW() &&
+          request.auth.uid in childData(childId).hcwIds;
+        allow update: if isSignedIn() && (
+          request.auth.uid in childData(childId).hcwIds ||
+          (
+            isParent() &&
+            resource.data.get('parentId', '') == request.auth.uid &&
+            resource.data.get('isVisibleToParent', false) == true &&
+            resource.data.get('status', '') == 'finalized' &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['isVisibleToTeacher', 'visibleToTeacherIds'])
+          )
+        );
+        allow delete: if false;
       }
 
       // ── Speech Logs subcollection ─────────────────────────────────────
       match /speechLogs/{logId} {
         allow read: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+          request.auth.uid in childData(childId).hcwIds ||
+          childData(childId).parentId == request.auth.uid ||
+          (
+            request.auth.uid in childData(childId).get('teacherIds', []) &&
+            resource.data.conductedBy == request.auth.uid
+          )
         );
         allow create: if isSignedIn() && (
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+          childData(childId).parentId == request.auth.uid ||
+          request.auth.uid in childData(childId).get('teacherIds', [])
         );
         allow update, delete: if false;
       }
@@ -121,15 +152,54 @@ service cloud.firestore {
       // ── Notes subcollection ───────────────────────────────────────────
       match /notes/{noteId} {
         allow read: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds ||
-          get(/databases/$(database)/documents/children/$(childId)).data.parentId == request.auth.uid ||
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.get('teacherIds', [])
+          (
+            isHCW() &&
+            request.auth.uid in childData(childId).hcwIds &&
+            (
+              resource.data.authorRole == 'hcw' ||
+              (
+                resource.data.authorRole == 'teacher' &&
+                resource.data.isVisibleToHcw == true &&
+                request.auth.uid in resource.data.get('visibleToHcwIds', [])
+              )
+            )
+          ) ||
+          (
+            isParent() &&
+            resource.data.parentId == request.auth.uid &&
+            resource.data.isPublic == true
+          ) ||
+          (
+            isTeacher() &&
+            request.auth.uid in resource.data.get('visibleToTeacherIds', []) &&
+            resource.data.isTeacherVisible == true
+          )
         );
         allow create: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds
+          (
+            isHCW() &&
+            request.auth.uid in childData(childId).hcwIds
+          ) ||
+          (
+            isTeacher() &&
+            request.auth.uid in childData(childId).get('teacherIds', []) &&
+            request.resource.data.authorRole == 'teacher' &&
+            request.resource.data.isPublic == true
+          )
         );
         allow update: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.hcwIds
+          (
+            isHCW() &&
+            request.auth.uid in childData(childId).hcwIds &&
+            resource.data.authorRole == 'hcw'
+          ) ||
+          (
+            isParent() &&
+            childData(childId).parentId == request.auth.uid &&
+            resource.data.authorRole == 'teacher' &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['isVisibleToHcw', 'visibleToHcwIds'])
+          )
         );
         allow delete: if false;
       }
@@ -150,14 +220,27 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════════════
 
     match /invites/{inviteId} {
-      // Parent who created or teacher who received can read
       allow read: if isSignedIn() && (
-        resource.data.parentId == request.auth.uid ||
+        resource.data.parentUid == request.auth.uid ||
+        resource.data.get('parentId', '') == request.auth.uid ||
         resource.data.teacherUid == request.auth.uid ||
-        resource.data.teacherEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        resource.data.hcwUid == request.auth.uid ||
+        resource.data.teacherEmail == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email ||
+        resource.data.get('hcwEmail', '') == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
       );
       allow create: if isParent();
-      allow update: if isSignedIn(); // Teacher accepts/declines
+      allow update: if isSignedIn() && (
+        (
+          resource.data.parentUid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          request.resource.data.status == 'cancelled'
+        ) ||
+        (
+          resource.data.teacherUid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          request.resource.data.status in ['accepted', 'declined']
+        )
+      );
       allow delete: if false;
     }
 
@@ -167,9 +250,10 @@ service cloud.firestore {
 
     match /notifications/{uid}/items/{notifId} {
       allow read: if isOwner(uid);
-      allow create: if true; // Backend (admin SDK) creates these
-      allow update: if isOwner(uid); // User marks as read
-      allow delete: if isOwner(uid); // User deletes
+      // Writes are backend-only (Admin SDK bypasses rules). Clients must not create notifications.
+      allow create: if false;
+      allow update: if isOwner(uid);
+      allow delete: if isOwner(uid);
     }
   }
 }

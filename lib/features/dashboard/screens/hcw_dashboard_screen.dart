@@ -136,7 +136,13 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
                     // ── Stats row (4 cards) ──────────────────────────
                     childrenAsync.when(
                       loading: () => const SizedBox.shrink(),
-                      error: (e, _) => const SizedBox.shrink(),
+                      error: (e, _) => Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          'Could not load patient stats.',
+                          style: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+                        ),
+                      ),
                       data: (children) {
                         final total = children.length;
                         final highRisk = children.where((c) => c.riskLevel == 'high').length;
@@ -170,7 +176,7 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
                               SizedBox(
                                 width: 140,
                                 child: SummaryCard(icon: Icons.schedule, value: '$unclaimed',
-                                    label: 'Pending Referrals', iconColor: HearTechColors.warmOrange),
+                                    label: 'Unclaimed Profiles', iconColor: HearTechColors.warmOrange),
                               ),
                             ],
                           ),
@@ -189,6 +195,13 @@ class _HcwDashboardScreenState extends ConsumerState<HcwDashboardScreen> {
                     HearTechButton(
                       label: 'View My Patients',
                       onPressed: () => context.go(Routes.hcwPatients),
+                      isSecondary: true,
+                    ),
+                    const SizedBox(height: 12),
+                    HearTechButton(
+                      label: 'Check Invites',
+                      icon: Icons.mail_outline,
+                      onPressed: () => context.go(Routes.hcwInvites),
                       isSecondary: true,
                     ),
                     const SizedBox(height: 24),

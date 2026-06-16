@@ -2,17 +2,18 @@
 Speech analysis endpoints — Whisper transcription, phoneme analysis, Ling Six scoring.
 """
 import os
+import re
+import shutil
+import subprocess
 import tempfile
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request, Depends
 from pydantic import BaseModel
 from typing import List, Optional
-from firebase_admin import firestore
 
 from auth_dependency import verify_firebase_token
-from services.notification_service import NotificationService
+from child_auth import assert_child_access
 
 router = APIRouter()
-db = firestore.client()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -113,33 +114,337 @@ LING_FREQUENCY_MAP = {
     "sh": {"range": "2000-4000 Hz", "label": "fricative, high"},
     "s": {"range": "4000-8000 Hz", "label": "sibilant, very high"},
 }
+LING_SOUND_ORDER = ("m", "ah", "oo", "ee", "sh", "s")
+SHOW_AND_TELL_CATEGORIES = ("animals", "food", "objects", "body", "transport")
+
+LING_SIX_SOUND_META = {
+    "m": {"display": "/m/", "frequency": "250-500 Hz", "label": "Low frequency"},
+    "ah": {"display": "/ah/", "frequency": "500-1000 Hz", "label": "Low-mid"},
+    "oo": {"display": "/oo/", "frequency": "500-1000 Hz", "label": "Mid"},
+    "ee": {"display": "/ee/", "frequency": "1000-3000 Hz", "label": "Mid-high"},
+    "sh": {"display": "/sh/", "frequency": "2000-4000 Hz", "label": "High"},
+    "s": {"display": "/s/", "frequency": "4000-8000 Hz", "label": "Very high"},
+}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# HELPER — fire HCW-08 notification
-# ═══════════════════════════════════════════════════════════════════════════════
+def _cloudinary_configured() -> bool:
+    if os.environ.get("CLOUDINARY_URL", "").strip():
+        return True
+    return all(
+        os.environ.get(k, "").strip()
+        for k in ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")
+    )
 
-async def _fire_hcw08(child_id: str, game_name: str):
-    """Send HCW-08 notification to all linked HCWs for this child."""
+
+def _ensure_cloudinary_config() -> bool:
+    """Configure Cloudinary SDK before Admin API calls."""
+    if not _cloudinary_configured():
+        return False
     try:
-        child_doc = db.collection("children").document(child_id).get()
-        if not child_doc.exists:
-            return
-        child_data = child_doc.to_dict()
-        child_name = child_data.get("name", "A child")
-        hcw_ids = child_data.get("hcwIds", [])
+        import cloudinary
 
-        for hcw_id in hcw_ids:
-            await NotificationService.send(
-                uid=hcw_id,
-                notif_type="HCW-08",
-                title="Speech Session Completed",
-                body=f"{child_name} completed a {game_name} session.",
-                related_child_id=child_id,
-                navigation_route=f"/hcw/child/{child_id}",
-            )
+        url = os.environ.get("CLOUDINARY_URL", "").strip()
+        if url:
+            cloudinary.config(cloudinary_url=url)
+            return True
+        cloudinary.config(
+            cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip(),
+            api_key=os.environ.get("CLOUDINARY_API_KEY", "").strip(),
+            api_secret=os.environ.get("CLOUDINARY_API_SECRET", "").strip(),
+        )
+        return True
     except Exception as e:
-        print(f"[HCW-08] Failed to send notification: {e}")
+        print(f"[SPEECH-ASSETS] Cloudinary config failed: {e}")
+        return False
+
+
+def _list_cloudinary_resources(prefix: str, max_results: int = 30) -> list:
+    """List Cloudinary upload resources under a folder prefix."""
+    if not _ensure_cloudinary_config():
+        print("[SPEECH-ASSETS] Cloudinary not configured — check CLOUDINARY_URL in backend/.env")
+        return []
+    try:
+        import cloudinary.api
+        from cloudinary import Search
+
+        prefix_clean = prefix.strip("/")
+        list_prefix = f"{prefix_clean}/"
+
+        result = cloudinary.api.resources(
+            type="upload",
+            prefix=list_prefix,
+            max_results=max_results,
+        )
+        resources = result.get("resources", [])
+        if resources:
+            print(f"[SPEECH-ASSETS] Found {len(resources)} via resources() for {list_prefix}")
+            return resources
+
+        # Media Library folder view can require Search API on some accounts.
+        search_result = (
+            Search()
+            .expression(f'folder="{prefix_clean}"')
+            .max_results(max_results)
+            .execute()
+        )
+        resources = search_result.get("resources", [])
+        if resources:
+            print(f"[SPEECH-ASSETS] Found {len(resources)} via search() for {prefix_clean}")
+            return resources
+
+        print(f"[SPEECH-ASSETS] No resources for prefix {list_prefix}")
+        return []
+    except Exception as e:
+        print(f"[SPEECH-ASSETS] Cloudinary list failed for {prefix}: {e}")
+        return []
+
+
+# Cloudinary appends a random 6-char suffix to uploaded filenames (e.g. cat_niwwo5).
+_CLOUDINARY_SUFFIX_RE = re.compile(r"_[a-z0-9]{6}$", re.IGNORECASE)
+
+
+def _normalize_asset_word(raw: str) -> str:
+    """Turn a Cloudinary public_id / filename into a clean display + match word."""
+    word = os.path.splitext(raw.split("/")[-1])[0]
+    word = _CLOUDINARY_SUFFIX_RE.sub("", word)
+    word = word.replace("_", " ").replace("-", " ").strip()
+    return word
+
+
+def _word_from_public_id(public_id: str) -> str:
+    return _normalize_asset_word(public_id)
+
+
+def _ling_sound_key_from_public_id(public_id: str) -> str:
+    """Extract Ling Six sound key (m, ah, oo, ...) from a Cloudinary public_id."""
+    stem = os.path.splitext(public_id.split("/")[-1])[0]
+    stem = _CLOUDINARY_SUFFIX_RE.sub("", stem)
+    if stem.lower().startswith("ling_"):
+        stem = stem[5:]
+    return stem.lower().strip()
+
+
+def _speech_match_score(expected: str, transcript: str) -> int:
+    """Best fuzzy score between expected word and transcript (handles single-word utterances)."""
+    from rapidfuzz import fuzz
+
+    expected = expected.strip().lower()
+    transcript = re.sub(r"[^\w\s]", "", transcript.strip().lower()).strip()
+    if not expected or not transcript:
+        return 0
+
+    scores = [
+        fuzz.ratio(transcript, expected),
+        fuzz.partial_ratio(transcript, expected),
+        fuzz.token_sort_ratio(transcript, expected),
+    ]
+    for token in transcript.split():
+        scores.extend([
+            fuzz.ratio(token, expected),
+            fuzz.partial_ratio(token, expected),
+        ])
+        if token == expected:
+            scores.append(100)
+
+    return int(max(scores))
+
+
+def _sanitize_english_transcript(text: str) -> str:
+    """Keep ASCII letters/spaces only — no CJK or other scripts in Show & Tell output."""
+    if not text:
+        return ""
+    cleaned = "".join(
+        ch if (ch.isascii() and (ch.isalpha() or ch.isspace())) else " "
+        for ch in text
+    )
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def _trim_silence_wav(input_path: str) -> str:
+    """Trim leading/trailing silence so Whisper does not hallucinate on quiet tails."""
+    trimmed_path = f"{input_path}.trim.wav"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", input_path,
+                "-af",
+                (
+                    "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-42dB:detection=rms,"
+                    "silenceremove=stop_periods=-1:stop_duration=0.25:stop_threshold=-42dB:detection=rms"
+                ),
+                trimmed_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        if os.path.exists(trimmed_path) and os.path.getsize(trimmed_path) > 500:
+            return trimmed_path
+    except Exception as exc:
+        print(f"[ANALYZE-SPEECH] Silence trim skipped: {exc}")
+    return input_path
+
+
+def _looks_like_hallucination(text: str, expected: str) -> bool:
+    words = text.split()
+    if len(words) > 4:
+        return True
+    if len(text) > max(len(expected) * 3, 24):
+        return True
+    filler_phrases = (
+        "thank you for watching",
+        "subscribe",
+        "please subscribe",
+        "stop listening",
+        "we should",
+    )
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in filler_phrases)
+
+
+def _pick_show_and_tell_transcript(expected: str, result: dict) -> str:
+    """Choose the most plausible short English transcript for a single-word game."""
+    from rapidfuzz import fuzz
+
+    expected = expected.strip().lower()
+    segments = result.get("segments") or []
+
+    short_segment_texts = []
+    for seg in segments:
+        text = _sanitize_english_transcript(seg.get("text", ""))
+        if not text:
+            continue
+        if len(text.split()) <= 4:
+            short_segment_texts.append((seg.get("avg_logprob", -9.0), text))
+
+    if short_segment_texts:
+        short_segment_texts.sort(key=lambda item: item[0], reverse=True)
+        return short_segment_texts[0][1]
+
+    raw = _sanitize_english_transcript(result.get("text", ""))
+    if not raw:
+        return ""
+
+    if not _looks_like_hallucination(raw, expected):
+        return raw
+
+    tokens = raw.split()
+    best = raw
+    best_score = -1
+    for token in tokens:
+        score = fuzz.ratio(token, expected)
+        if score > best_score:
+            best_score = score
+            best = token
+
+    if len(raw.split()) > 1:
+        for window in (2, 3):
+            if len(tokens) < window:
+                continue
+            for i in range(len(tokens) - window + 1):
+                phrase = " ".join(tokens[i : i + window])
+                score = fuzz.ratio(phrase, expected)
+                if score > best_score:
+                    best_score = score
+                    best = phrase
+
+    return best or raw
+
+
+def _transcribe_show_and_tell_word(whisper_model, audio_path: str, expected_word: str) -> dict:
+    """Transcribe one English word with anti-hallucination Whisper settings."""
+    expected = expected_word.strip().lower()
+    return whisper_model.transcribe(
+        audio_path,
+        language="en",
+        task="transcribe",
+        fp16=False,
+        temperature=0.0,
+        condition_on_previous_text=False,
+        compression_ratio_threshold=2.0,
+        logprob_threshold=-0.8,
+        no_speech_threshold=0.65,
+        initial_prompt=f"English word: {expected}.",
+    )
+
+
+def _fetch_show_and_tell_from_cloudinary() -> dict:
+    categories = {}
+    for category in SHOW_AND_TELL_CATEGORIES:
+        resources = _list_cloudinary_resources(f"heartech/show_and_tell/{category}/", max_results=50)
+        image_resources = [
+            r for r in resources
+            if r.get("resource_type") in (None, "image") and r.get("secure_url")
+        ]
+        if image_resources:
+            categories[category] = [
+                {
+                    "word": _word_from_public_id(r["public_id"]),
+                    "url": r["secure_url"],
+                }
+                for r in image_resources
+            ]
+    return categories
+
+
+def _fetch_ling_six_from_cloudinary() -> list:
+    audio_resources = _list_cloudinary_resources("heartech/ling_six/audio/")
+    image_resources = _list_cloudinary_resources("heartech/ling_six/images/")
+
+    audio_by_sound = {}
+    for resource in audio_resources:
+        sound = _ling_sound_key_from_public_id(resource["public_id"])
+        if sound in LING_SIX_SOUND_META:
+            audio_by_sound[sound] = resource["secure_url"]
+
+    image_by_sound = {}
+    for resource in image_resources:
+        sound = _ling_sound_key_from_public_id(resource["public_id"])
+        if sound in LING_SIX_SOUND_META:
+            image_by_sound[sound] = resource["secure_url"]
+
+    sounds = []
+    for sound in LING_SOUND_ORDER:
+        meta = LING_SIX_SOUND_META[sound]
+        sounds.append({
+            "sound": sound,
+            "display": meta["display"],
+            "frequency": meta["frequency"],
+            "label": meta["label"],
+            "audioUrl": audio_by_sound.get(sound),
+            "imageUrl": image_by_sound.get(sound),
+        })
+    return sounds
+
+
+def _deterministic_frequency_profile(missed_sounds: List[str]) -> dict:
+    ordered_missed = [sound for sound in LING_SOUND_ORDER if sound in set(missed_sounds)]
+    if not ordered_missed:
+        return {
+            "orderedMissedSounds": [],
+            "frequencyBands": [],
+            "rationale": "No missed sounds in Round 2.",
+        }
+
+    bands = []
+    details = []
+    for sound in ordered_missed:
+        info = LING_FREQUENCY_MAP.get(sound, {})
+        band = info.get("range")
+        if band and band not in bands:
+            bands.append(band)
+        details.append(f"/{sound}/ -> {info.get('range', 'Unknown')} ({info.get('label', 'unknown')})")
+
+    return {
+        "orderedMissedSounds": ordered_missed,
+        "frequencyBands": bands,
+        "rationale": "; ".join(details),
+    }
+
+
+
+def _ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -159,38 +464,73 @@ async def analyze_speech(
     Accepts a .wav file, transcribes it, fuzzy-matches against the expected word,
     and performs phoneme analysis.
     """
+    assert_child_access(user.get("uid", ""), childId)
+
     # ── Save uploaded .wav to temp file ───────────────────────────────────
     temp_path = None
+    trimmed_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             content = await audioFile.read()
             tmp.write(content)
             temp_path = tmp.name
 
-        # ── Transcribe with Whisper ───────────────────────────────────────
+        # ── Transcribe with Whisper (lazy load) ───────────────────────────
         whisper_model = getattr(request.app.state, "whisper_model", None)
+        if whisper_model is None and not getattr(request.app.state, "whisper_load_attempted", False):
+            try:
+                import whisper
+
+                print("[SPEECH] Loading Whisper 'base' model...")
+                whisper_model = whisper.load_model("base")
+                request.app.state.whisper_model = whisper_model
+                print("[SPEECH] Whisper ready.")
+            except Exception as e:
+                print(f"[SPEECH] WARNING: Failed to load Whisper model: {e}")
+            finally:
+                request.app.state.whisper_load_attempted = True
+            whisper_model = getattr(request.app.state, "whisper_model", None)
+
         if whisper_model is None:
-            # Whisper not loaded — return graceful fallback
+            # Whisper not loaded — fail closed; client must not save this result
             return {
-                "transcript": expectedWord.lower(),
-                "matchScore": 70,
-                "clarityRating": "Good",
+                "transcript": "",
+                "matchScore": 0,
+                "clarityRating": "Unavailable",
                 "phonemesCorrect": [],
                 "phonemesMissed": [],
-                "feedbackMessage": "Speech analysis model is loading. Please try again in a moment.",
+                "feedbackMessage": (
+                    "Speech analysis is unavailable right now. "
+                    "Please wait a moment and try recording again."
+                ),
+                "isFallback": True,
+                "analysisUnavailable": True,
             }
 
-        result = whisper_model.transcribe(temp_path)
-        transcript = result["text"].strip().lower()
+        if not _ffmpeg_available():
+            print("[ANALYZE-SPEECH] ffmpeg not found on PATH — Whisper cannot decode audio.")
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Speech analysis requires ffmpeg. Install it locally with: brew install ffmpeg "
+                    "(then restart the backend)."
+                ),
+            )
 
-        # Remove punctuation from transcript for cleaner matching
-        import re
-        transcript_clean = re.sub(r'[^\w\s]', '', transcript).strip()
+        expected_clean = _normalize_asset_word(expectedWord)
+        if not expected_clean:
+            expected_clean = expectedWord.strip().lower()
+
+        trimmed_path = _trim_silence_wav(temp_path)
+        whisper_result = _transcribe_show_and_tell_word(
+            whisper_model, trimmed_path, expected_clean
+        )
+        transcript_clean = _pick_show_and_tell_transcript(expected_clean, whisper_result)
+        transcript = transcript_clean
 
         # ── Fuzzy match ───────────────────────────────────────────────────
-        from rapidfuzz import fuzz
-        expected_lower = expectedWord.strip().lower()
-        match_score = int(fuzz.ratio(transcript_clean, expected_lower))
+        expected_lower = expected_clean.lower()
+        match_score = _speech_match_score(expected_lower, transcript_clean or transcript)
 
         # ── Phoneme analysis ──────────────────────────────────────────────
         phonemes_correct = []
@@ -242,35 +582,49 @@ async def analyze_speech(
 
         # ── Feedback message ──────────────────────────────────────────────
         if clarity_rating == "Excellent":
-            feedback = f"Excellent pronunciation! '{expectedWord}' was clearly spoken."
+            feedback = f"Excellent pronunciation! '{expected_clean}' was clearly spoken."
         elif clarity_rating == "Good":
-            feedback = f"Good attempt at '{expectedWord}'! Keep practicing for even clearer speech."
+            feedback = f"Good attempt at '{expected_clean}'! Keep practicing for even clearer speech."
         elif clarity_rating == "Needs Practice":
             missed_str = ", ".join(f"/{p}/" for p in phonemes_missed[:3]) if phonemes_missed else "some sounds"
-            feedback = f"'{expectedWord}' needs more practice. Focus on {missed_str}."
+            feedback = f"'{expected_clean}' needs more practice. Focus on {missed_str}."
         else:
-            feedback = f"The word '{expectedWord}' was not clearly detected. Try speaking more slowly and clearly."
-
-        # ── Fire HCW-08 notification ──────────────────────────────────────
-        await _fire_hcw08(childId, "Show and Tell")
+            feedback = (
+                f"The word '{expected_clean}' was not clearly detected"
+                f"{f' (we heard \"{transcript_clean}\")' if transcript_clean else ''}. "
+                "Try speaking more slowly and clearly."
+            )
 
         return {
             "transcript": transcript_clean or transcript,
+            "expectedWord": expected_clean,
             "matchScore": match_score,
             "clarityRating": clarity_rating,
             "phonemesCorrect": phonemes_correct,
             "phonemesMissed": phonemes_missed,
             "feedbackMessage": feedback,
+            "analysisFallbackUsed": False,
+            "analysisAvailable": True,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ANALYZE-SPEECH] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Speech analysis failed: {str(e)}")
+        if "ffmpeg" in str(e).lower():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Speech analysis requires ffmpeg. Install it locally with: brew install ffmpeg "
+                    "(then restart the backend)."
+                ),
+            )
+        raise HTTPException(status_code=500, detail="Speech analysis failed. Please try again.")
 
     finally:
-        # ── Clean up temp file ────────────────────────────────────────────
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+        for path in {temp_path, trimmed_path}:
+            if path and os.path.exists(path):
+                os.unlink(path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -287,6 +641,8 @@ async def ling_six_analysis(
     Scores based on Round 2 (definitive round).
     Estimates frequency range of potential hearing loss.
     """
+    assert_child_access(user.get("uid", ""), request_body.childId)
+
     results = request_body.results
     child_id = request_body.childId
 
@@ -294,14 +650,15 @@ async def ling_six_analysis(
     round2_heard = sum(1 for r in results if r.round2heard)
 
     if round2_heard == 6:
-        overall_result = "Pass"
+        overall_result = "pass"
     elif round2_heard >= 4:
-        overall_result = "Watch"
+        overall_result = "watch"
     else:
-        overall_result = "Refer"
+        overall_result = "refer"
 
     # ── Frequency range estimation ────────────────────────────────────────
     missed_sounds = [r.sound for r in results if not r.round2heard]
+    frequency_profile = _deterministic_frequency_profile(missed_sounds)
 
     if not missed_sounds:
         freq_estimate = "All frequencies detected (250-8000 Hz)"
@@ -332,11 +689,10 @@ async def ling_six_analysis(
             freq_estimate = "Profound hearing loss indicator — all frequencies affected"
         else:
             # Mixed pattern
-            freq_ranges = []
-            for sound in missed_sounds:
-                if sound in LING_FREQUENCY_MAP:
-                    freq_ranges.append(LING_FREQUENCY_MAP[sound]["range"])
-            freq_estimate = f"Possible loss in: {', '.join(set(freq_ranges))}"
+            bands = frequency_profile["frequencyBands"]
+            freq_estimate = (
+                f"Possible loss in: {', '.join(bands)}" if bands else "Possible mixed-frequency hearing concern"
+            )
 
         # Build clinical explanation
         missed_details = []
@@ -353,7 +709,7 @@ async def ling_six_analysis(
             f"to assess distance-dependent hearing ability."
         )
 
-        if overall_result == "Refer":
+        if overall_result == "refer":
             recommendation = (
                 "Professional audiological evaluation is strongly recommended. "
                 "The pattern of missed sounds suggests potential hearing loss that "
@@ -379,12 +735,15 @@ async def ling_six_analysis(
                 "round2heard": r.round2heard,
             })
 
-    # ── Fire HCW-08 notification ──────────────────────────────────────────
-    await _fire_hcw08(child_id, "Ling Six Test")
-
     return {
         "overallResult": overall_result,
         "frequencyRangeEstimate": freq_estimate,
+        "frequencyProfile": frequency_profile,
+        "roundSummary": {
+            "round1HeardCount": sum(1 for r in results if r.round1heard),
+            "round2HeardCount": round2_heard,
+            "totalSounds": len(results),
+        },
         "flaggedSounds": flagged_sounds,
         "clinicalExplanation": clinical_explanation,
         "recommendation": recommendation,
@@ -398,50 +757,51 @@ async def ling_six_analysis(
 @router.get("/speech-images")
 async def get_speech_images(user=Depends(verify_firebase_token)):
     """
-    Return Show and Tell image URLs organized by category.
-    Serves from Cloudinary heartech/show_and_tell/ folder if available,
-    otherwise returns fallback emoji word bank.
+    Return Show and Tell image URLs organized by category from Cloudinary.
+    Response includes source metadata; no silent emoji-only fallback.
     """
-    # Try to fetch from Cloudinary if configured
-    try:
-        import cloudinary
-        import cloudinary.api
+    categories = _fetch_show_and_tell_from_cloudinary()
+    if categories:
+        return {
+            "source": "cloudinary",
+            "categories": categories,
+            "message": "",
+        }
 
-        cloudinary_url = os.environ.get("CLOUDINARY_URL")
-        if cloudinary_url:
-            # Attempt to list resources from Cloudinary folder
-            categories = {}
-            for category in ["animals", "food", "objects", "body", "transport"]:
-                try:
-                    result = cloudinary.api.resources(
-                        type="upload",
-                        prefix=f"heartech/show_and_tell/{category}/",
-                        max_results=20,
-                    )
-                    if result.get("resources"):
-                        categories[category] = [
-                            {
-                                "word": os.path.splitext(
-                                    r["public_id"].split("/")[-1]
-                                )[0],
-                                "url": r["secure_url"],
-                            }
-                            for r in result["resources"]
-                        ]
-                except Exception:
-                    pass  # Category folder doesn't exist yet
+    return {
+        "source": "fallback",
+        "categories": FALLBACK_IMAGES,
+        "message": (
+            "Using built-in emoji word bank. Upload images to Cloudinary under "
+            "heartech/show_and_tell/{category}/ for photo-based cards."
+        ),
+    }
 
-            if categories:
-                # Fill missing categories with fallback
-                for cat in FALLBACK_IMAGES:
-                    if cat not in categories:
-                        categories[cat] = FALLBACK_IMAGES[cat]
-                return categories
 
-    except ImportError:
-        pass  # cloudinary not configured
-    except Exception as e:
-        print(f"[SPEECH-IMAGES] Cloudinary fetch failed: {e}")
+# ═══════════════════════════════════════════════════════════════════════════════
+# GET /api/ling-six-assets
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    # Return fallback emoji word bank
-    return FALLBACK_IMAGES
+@router.get("/ling-six-assets")
+async def get_ling_six_assets(user=Depends(verify_firebase_token)):
+    """
+    Return Ling Six sound manifest with Cloudinary audio/image URLs.
+    """
+    sounds = _fetch_ling_six_from_cloudinary()
+    has_remote_assets = any(s.get("audioUrl") or s.get("imageUrl") for s in sounds)
+    if has_remote_assets:
+        return {
+            "source": "cloudinary",
+            "sounds": sounds,
+            "message": "",
+        }
+
+    return {
+        "source": "empty",
+        "sounds": sounds,
+        "message": (
+            "No Ling Six assets found in Cloudinary. "
+            "Upload audio to heartech/ling_six/audio/ling_{sound}.mp3 "
+            "and images to heartech/ling_six/images/{sound}.jpg."
+        ),
+    }

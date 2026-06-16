@@ -206,7 +206,7 @@ class FirestoreService {
         .set(obs.toJson());
   }
 
-  /// Stream teacher observations for a child.
+  /// Stream all teacher observations for a child (parent reads).
   Stream<List<TeacherObservationModel>> streamTeacherObservations(
       String childId) {
     return _db
@@ -216,6 +216,64 @@ class FirestoreService {
         .map((snap) => snap.docs
             .map((d) => TeacherObservationModel.fromJson(d.data()))
             .toList());
+  }
+
+  /// Stream only this teacher's observations — query must match Firestore rules.
+  Stream<List<TeacherObservationModel>> streamTeacherOwnObservations(
+    String childId,
+    String teacherUid,
+  ) {
+    if (teacherUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.teacherObservations(childId))
+        .where('teacherUid', isEqualTo: teacherUid)
+        .snapshots()
+        .map((snap) {
+          final obs = snap.docs
+              .map((d) => TeacherObservationModel.fromJson(d.data()))
+              .toList();
+          obs.sort((a, b) => b.date.compareTo(a.date));
+          return obs;
+        });
+  }
+
+  /// Observations shared by parent with HCW.
+  Stream<List<TeacherObservationModel>> streamHcwSharedObservations(
+    String childId,
+    String hcwUid,
+  ) {
+    if (hcwUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.teacherObservations(childId))
+        .where('isVisibleToHcw', isEqualTo: true)
+        .where('visibleToHcwIds', arrayContains: hcwUid)
+        .snapshots()
+        .map((snap) {
+          final obs = snap.docs
+              .map((d) => TeacherObservationModel.fromJson(d.data()))
+              .toList();
+          obs.sort((a, b) => b.date.compareTo(a.date));
+          return obs;
+        });
+  }
+
+  /// Parent toggles HCW visibility on an observation.
+  Future<void> updateObservationHcwShare(
+    String childId,
+    String obsId, {
+    required bool share,
+    required List<String> hcwIds,
+  }) async {
+    final data = <String, dynamic>{'isVisibleToHcw': share};
+    if (share && hcwIds.isNotEmpty) {
+      data['visibleToHcwIds'] = hcwIds;
+    } else {
+      data['visibleToHcwIds'] = FieldValue.delete();
+    }
+    await _db
+        .collection(FirestorePaths.teacherObservations(childId))
+        .doc(obsId)
+        .update(data);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -230,7 +288,79 @@ class FirestoreService {
         .set(referral.toJson());
   }
 
-  /// Stream referrals for a child.
+  Future<ReferralModel?> getReferral(String childId, String referralId) async {
+    final doc = await _db
+        .collection(FirestorePaths.referrals(childId))
+        .doc(referralId)
+        .get();
+    if (!doc.exists || doc.data() == null) return null;
+    return ReferralModel.fromJson(doc.data()!);
+  }
+
+  Future<void> updateReferralDraft(
+    String childId,
+    String referralId, {
+    required String letterText,
+    String? title,
+    String? pdfCloudinaryUrl,
+  }) async {
+    final data = <String, dynamic>{
+      'letterText': letterText,
+      if (title != null) 'title': title,
+      if (pdfCloudinaryUrl != null) 'pdfCloudinaryUrl': pdfCloudinaryUrl,
+    };
+    await _db
+        .collection(FirestorePaths.referrals(childId))
+        .doc(referralId)
+        .update(data);
+  }
+
+  Future<void> finalizeReferral(
+    String childId,
+    String referralId, {
+    required String parentId,
+    String? pdfCloudinaryUrl,
+  }) async {
+    final data = <String, dynamic>{
+      'status': ReferralStatus.finalized.firestoreValue,
+      'isVisibleToParent': true,
+      'parentId': parentId,
+      'finalizedAt': Timestamp.fromDate(DateTime.now()),
+      if (pdfCloudinaryUrl != null) 'pdfCloudinaryUrl': pdfCloudinaryUrl,
+    };
+    await _db
+        .collection(FirestorePaths.referrals(childId))
+        .doc(referralId)
+        .update(data);
+  }
+
+  Future<void> discardReferral(String childId, String referralId) async {
+    await _db.collection(FirestorePaths.referrals(childId)).doc(referralId).update({
+      'status': ReferralStatus.discarded.firestoreValue,
+    });
+  }
+
+  Future<void> updateReferralParentTeacherShare(
+    String childId,
+    String referralId, {
+    required bool isVisibleToTeacher,
+    required List<String> teacherIds,
+  }) async {
+    final data = <String, dynamic>{
+      'isVisibleToTeacher': isVisibleToTeacher,
+    };
+    if (isVisibleToTeacher && teacherIds.isNotEmpty) {
+      data['visibleToTeacherIds'] = teacherIds;
+    } else {
+      data['visibleToTeacherIds'] = FieldValue.delete();
+    }
+    await _db
+        .collection(FirestorePaths.referrals(childId))
+        .doc(referralId)
+        .update(data);
+  }
+
+  /// Stream all referral documents (including soft-deleted discarded records).
   Stream<List<ReferralModel>> streamReferrals(String childId) {
     return _db
         .collection(FirestorePaths.referrals(childId))
@@ -238,6 +368,51 @@ class FirestoreService {
         .snapshots()
         .map((snap) => snap.docs
             .map((d) => ReferralModel.fromJson(d.data()))
+            .toList());
+  }
+
+  /// Active referrals for HCW review (drafts and finalized only — discarded hidden).
+  Stream<List<ReferralModel>> streamHcwReferrals(String childId) {
+    return streamReferrals(childId).map(
+      (referrals) => referrals
+          .where((r) => r.status != ReferralStatus.discarded)
+          .toList(),
+    );
+  }
+
+  /// Finalized referrals shared with parent.
+  Stream<List<ReferralModel>> streamParentReferrals(
+    String childId,
+    String parentUid,
+  ) {
+    if (parentUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.referrals(childId))
+        .where('parentId', isEqualTo: parentUid)
+        .where('isVisibleToParent', isEqualTo: true)
+        .orderBy('generatedAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => ReferralModel.fromJson(d.data()))
+            .where((r) => r.status == ReferralStatus.finalized)
+            .toList());
+  }
+
+  /// Referrals parent chose to share with this teacher.
+  Stream<List<ReferralModel>> streamTeacherReferrals(
+    String childId,
+    String teacherUid,
+  ) {
+    if (teacherUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.referrals(childId))
+        .where('visibleToTeacherIds', arrayContains: teacherUid)
+        .orderBy('generatedAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => ReferralModel.fromJson(d.data()))
+            .where((r) =>
+                r.status == ReferralStatus.finalized && r.isVisibleToTeacher)
             .toList());
   }
 
@@ -253,7 +428,7 @@ class FirestoreService {
         .set(log.toJson());
   }
 
-  /// Stream speech logs for a child.
+  /// Stream speech logs for a child (HCW / parent — full history).
   Stream<List<SpeechLogModel>> streamSpeechLogs(String childId) {
     return _db
         .collection(FirestorePaths.speechLogs(childId))
@@ -262,6 +437,27 @@ class FirestoreService {
         .map((snap) => snap.docs
             .map((d) => SpeechLogModel.fromJson(d.data()))
             .toList());
+  }
+
+  /// Stream only speech logs this teacher conducted with the child.
+  Stream<List<SpeechLogModel>> streamTeacherSpeechLogs(
+    String childId,
+    String teacherUid,
+  ) {
+    if (teacherUid.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _db
+        .collection(FirestorePaths.speechLogs(childId))
+        .where('conductedBy', isEqualTo: teacherUid)
+        .snapshots()
+        .map((snap) {
+          final logs = snap.docs
+              .map((d) => SpeechLogModel.fromJson(d.data()))
+              .toList();
+          logs.sort((a, b) => b.date.compareTo(a.date));
+          return logs;
+        });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -276,23 +472,199 @@ class FirestoreService {
         .set(note.toJson());
   }
 
-  /// Stream notes for a child ordered by createdAt desc.
-  Stream<List<NoteModel>> streamNotes(String childId) {
-    return _db
-        .collection(FirestorePaths.notes(childId))
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => NoteModel.fromJson(d.data()))
-            .toList());
+  /// Add a teacher note to parent (always visible to parent).
+  Future<void> addTeacherNote(String childId, NoteModel note) async {
+    await addNote(childId, note);
   }
 
-  /// Update note visibility flags.
+  /// Stream notes for a child ordered by createdAt desc (HCW-only internal use).
+  Stream<List<NoteModel>> streamNotes(String childId) {
+    return streamHcwAuthoredNotes(childId);
+  }
+
+  /// HCW-authored notes — query must match Firestore rules (authorRole hcw).
+  Stream<List<NoteModel>> streamHcwAuthoredNotes(String childId) {
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .where('authorRole', isEqualTo: 'hcw')
+        .snapshots()
+        .map((snap) {
+          final notes = snap.docs
+              .map((d) => NoteModel.fromJson(d.data()))
+              .toList();
+          notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return notes;
+        });
+  }
+
+  /// Public HCW notes shared with the parent.
+  Stream<List<NoteModel>> streamParentNotes(String childId, String parentUid) {
+    if (parentUid.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .where('parentId', isEqualTo: parentUid)
+        .where('isPublic', isEqualTo: true)
+        .where('authorRole', isEqualTo: 'hcw')
+        .snapshots()
+        .map((snap) {
+          final notes = snap.docs
+              .map((d) => NoteModel.fromJson(d.data()))
+              .toList();
+          notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return notes;
+        });
+  }
+
+  /// Stream notes shared with a linked teacher.
+  Stream<List<NoteModel>> streamTeacherNotes(String childId, String teacherUid) {
+    if (teacherUid.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .where('visibleToTeacherIds', arrayContains: teacherUid)
+        .where('isTeacherVisible', isEqualTo: true)
+        .snapshots()
+        .map((snap) {
+          final notes = snap.docs
+              .map((d) => NoteModel.fromJson(d.data()))
+              .toList();
+          notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return notes;
+        });
+  }
+
+  /// Teacher-authored notes visible to parent.
+  Stream<List<NoteModel>> streamTeacherAuthoredNotes(
+    String childId,
+    String parentUid,
+  ) {
+    if (parentUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .where('parentId', isEqualTo: parentUid)
+        .where('isPublic', isEqualTo: true)
+        .where('authorRole', isEqualTo: 'teacher')
+        .snapshots()
+        .map((snap) {
+          final notes = snap.docs
+              .map((d) => NoteModel.fromJson(d.data()))
+              .toList();
+          notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return notes;
+        });
+  }
+
+  /// Teacher notes parent shared with HCW.
+  Stream<List<NoteModel>> streamHcwSharedTeacherNotes(
+    String childId,
+    String hcwUid,
+  ) {
+    if (hcwUid.isEmpty) return Stream.value(const []);
+    return _db
+        .collection(FirestorePaths.notes(childId))
+        .where('visibleToHcwIds', arrayContains: hcwUid)
+        .where('isVisibleToHcw', isEqualTo: true)
+        .where('authorRole', isEqualTo: 'teacher')
+        .snapshots()
+        .map((snap) {
+          final notes = snap.docs
+              .map((d) => NoteModel.fromJson(d.data()))
+              .toList();
+          notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return notes;
+        });
+  }
+
+  /// Parent toggles HCW visibility on a teacher note.
+  Future<void> updateNoteHcwShare(
+    String childId,
+    String noteId, {
+    required bool share,
+    required List<String> hcwIds,
+  }) async {
+    final data = <String, dynamic>{'isVisibleToHcw': share};
+    if (share && hcwIds.isNotEmpty) {
+      data['visibleToHcwIds'] = hcwIds;
+    } else {
+      data['visibleToHcwIds'] = FieldValue.delete();
+    }
+    await _db.collection(FirestorePaths.notes(childId)).doc(noteId).update(data);
+  }
+
+  /// Backfill sharing fields on HCW notes the caller is allowed to read.
+  /// Uses a scoped query — listing the whole notes collection fails under
+  /// Firestore rules when parent-only teacher notes exist.
+  Future<void> backfillNoteSharingFields(String childId) async {
+    try {
+      final child = await getChild(childId);
+      if (child == null) return;
+
+      final snap = await _db
+          .collection(FirestorePaths.notes(childId))
+          .where('authorRole', isEqualTo: 'hcw')
+          .get();
+
+      for (final doc in snap.docs) {
+        final note = NoteModel.fromJson(doc.data());
+        final updates = <String, dynamic>{};
+
+        if (note.isPublic &&
+            (note.parentId == null || note.parentId!.isEmpty) &&
+            child.parentId != null &&
+            child.parentId!.isNotEmpty) {
+          updates['parentId'] = child.parentId;
+        } else if (!note.isPublic && note.parentId != null) {
+          updates['parentId'] = FieldValue.delete();
+        }
+
+        if (note.isTeacherVisible &&
+            note.visibleToTeacherIds.isEmpty &&
+            child.teacherIds.isNotEmpty) {
+          updates['visibleToTeacherIds'] = child.teacherIds;
+        } else if (!note.isTeacherVisible &&
+            note.visibleToTeacherIds.isNotEmpty) {
+          updates['visibleToTeacherIds'] = FieldValue.delete();
+        }
+
+        if (updates.isNotEmpty) {
+          await doc.reference.update(updates);
+        }
+      }
+    } catch (_) {
+      // Non-fatal — notes tab should still load via scoped streams.
+    }
+  }
+
+  /// Update note visibility flags and denormalized sharing fields.
   Future<void> updateNoteVisibility(
-      String childId, String noteId, {bool? isPublic, bool? isTeacherVisible}) async {
+    String childId,
+    String noteId, {
+    bool? isPublic,
+    bool? isTeacherVisible,
+  }) async {
+    final child = await getChild(childId);
+    if (child == null) return;
+
     final data = <String, dynamic>{};
-    if (isPublic != null) data['isPublic'] = isPublic;
-    if (isTeacherVisible != null) data['isTeacherVisible'] = isTeacherVisible;
+    if (isPublic != null) {
+      data['isPublic'] = isPublic;
+      if (isPublic && child.parentId != null && child.parentId!.isNotEmpty) {
+        data['parentId'] = child.parentId;
+      } else if (!isPublic) {
+        data['parentId'] = FieldValue.delete();
+      }
+    }
+    if (isTeacherVisible != null) {
+      data['isTeacherVisible'] = isTeacherVisible;
+      if (isTeacherVisible && child.teacherIds.isNotEmpty) {
+        data['visibleToTeacherIds'] = child.teacherIds;
+      } else if (!isTeacherVisible) {
+        data['visibleToTeacherIds'] = FieldValue.delete();
+      }
+    }
     if (data.isNotEmpty) {
       await _db.collection(FirestorePaths.notes(childId)).doc(noteId).update(data);
     }
@@ -366,7 +738,7 @@ class FirestoreService {
         .set(invite.toJson());
   }
 
-  /// Get pending invites for a teacher.
+  /// Get pending teacher invites.
   Stream<List<InviteModel>> streamPendingInvitesForTeacher(
       String teacherUid) {
     return _db
@@ -376,6 +748,20 @@ class FirestoreService {
         .snapshots()
         .map((snap) => snap.docs
             .map((d) => InviteModel.fromJson(d.data()))
+            .where((invite) => invite.isTeacherInvite)
+            .toList());
+  }
+
+  /// Get pending HCW invites.
+  Stream<List<InviteModel>> streamPendingInvitesForHcw(String hcwUid) {
+    return _db
+        .collection(FirestorePaths.invites)
+        .where('hcwUid', isEqualTo: hcwUid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => InviteModel.fromJson(d.data()))
+            .where((invite) => invite.isHcwInvite)
             .toList());
   }
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
+import 'package:heartech/core/router/navigation_utils.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
@@ -19,11 +20,43 @@ class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
   String? _selectedChildId;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoSelectSingleChild());
+  }
+
+  void _autoSelectSingleChild() {
+    final role = ref.read(userRoleProvider) ?? 'parent';
+    final async = role == 'teacher'
+        ? ref.read(teacherChildrenProvider)
+        : ref.read(parentChildrenProvider);
+    final children = async.asData?.value;
+    if (children != null && children.length == 1 && _selectedChildId == null) {
+      setState(() => _selectedChildId = children.first.childId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final role = ref.watch(userRoleProvider) ?? 'parent';
     final childrenAsync = role == 'teacher'
         ? ref.watch(teacherChildrenProvider)
         : ref.watch(parentChildrenProvider);
+
+    ref.listen(parentChildrenProvider, (_, next) {
+      if (role != 'parent') return;
+      final children = next.asData?.value;
+      if (children != null && children.length == 1 && _selectedChildId == null) {
+        setState(() => _selectedChildId = children.first.childId);
+      }
+    });
+    ref.listen(teacherChildrenProvider, (_, next) {
+      if (role != 'teacher') return;
+      final children = next.asData?.value;
+      if (children != null && children.length == 1 && _selectedChildId == null) {
+        setState(() => _selectedChildId = children.first.childId);
+      }
+    });
 
     return Scaffold(
       backgroundColor: HearTechColors.background,
@@ -31,7 +64,7 @@ class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
         backgroundColor: HearTechColors.deepTeal,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: HearTechColors.white),
-          onPressed: () => context.pop(),
+          onPressed: () => closeSpeechScreen(context, role: role),
         ),
         title: Text('Speech Exercises',
             style: HearTechTextStyles.appBarTitle(color: HearTechColors.white)),
@@ -42,11 +75,6 @@ class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (children) {
           if (children.isEmpty) return _buildEmpty();
-
-          // Auto-select if only one child
-          if (children.length == 1 && _selectedChildId == null) {
-            _selectedChildId = children.first.childId;
-          }
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -105,7 +133,7 @@ class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
                   color: HearTechColors.deepTeal,
                   buttonLabel: 'Play',
                   isPrimary: true,
-                  onPressed: () => context.go(
+                  onPressed: () => context.push(
                     Routes.showAndTell.replaceFirst(':childId', _selectedChildId!)),
                 ),
                 const SizedBox(height: 16),
@@ -117,7 +145,7 @@ class _SpeechGamesScreenState extends ConsumerState<SpeechGamesScreen> {
                   color: HearTechColors.purple,
                   buttonLabel: 'Start Test',
                   isPrimary: false,
-                  onPressed: () => context.go(
+                  onPressed: () => context.push(
                     Routes.lingSix.replaceFirst(':childId', _selectedChildId!)),
                 ),
               ],

@@ -51,14 +51,21 @@ app.*.map.json
 **/.env
 **/service-account-key.json
 /backend/service-account-key.json
+backend/.runtime/*
+!backend/.runtime/credentials.example
 
 # ── Firebase config files (contain API keys) ──────────────────────────────
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
-lib/firebase_options.dart
 
 # ── AI model weights (18GB+) ──────────────────────────────────────────────
-backend/heartech_ai/
+backend/heartech_ai/*
+!backend/heartech_ai/scripts/
+!backend/heartech_ai/scripts/**
+!backend/heartech_ai/DATASET_README.md
+!backend/heartech_ai/heartech_adapters_v2/
+!backend/heartech_ai/heartech_adapters_v2/adapter_config.json
+backend/referral_exports/
 
 # ── Signing keystores ────────────────────────────────────────────────────
 *.keystore

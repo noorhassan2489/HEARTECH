@@ -3,12 +3,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Teacher invite record — stored under /invites/{inviteId}
 class InviteModel {
   final String inviteId;
+  final String inviteType; // teacher, hcw
   final String childId;
   final String childName;
   final String parentUid;
   final String parentName;
   final String teacherEmail;
   final String? teacherUid;
+  final String hcwEmail;
+  final String? hcwUid;
   final String status; // pending, accepted, declined, cancelled, expired
   final DateTime createdAt;
   final DateTime expiresAt;
@@ -16,12 +19,15 @@ class InviteModel {
 
   const InviteModel({
     required this.inviteId,
+    this.inviteType = 'teacher',
     required this.childId,
     required this.childName,
     required this.parentUid,
     required this.parentName,
-    required this.teacherEmail,
+    this.teacherEmail = '',
     this.teacherUid,
+    this.hcwEmail = '',
+    this.hcwUid,
     this.status = 'pending',
     required this.createdAt,
     required this.expiresAt,
@@ -31,12 +37,15 @@ class InviteModel {
   factory InviteModel.fromJson(Map<String, dynamic> json) {
     return InviteModel(
       inviteId: json['inviteId'] as String? ?? '',
+      inviteType: json['inviteType'] as String? ?? 'teacher',
       childId: json['childId'] as String? ?? '',
       childName: json['childName'] as String? ?? '',
       parentUid: json['parentUid'] as String? ?? '',
       parentName: json['parentName'] as String? ?? '',
       teacherEmail: json['teacherEmail'] as String? ?? '',
       teacherUid: json['teacherUid'] as String?,
+      hcwEmail: json['hcwEmail'] as String? ?? '',
+      hcwUid: json['hcwUid'] as String?,
       status: json['status'] as String? ?? 'pending',
       createdAt: _parseTimestamp(json['createdAt']),
       expiresAt: _parseTimestamp(json['expiresAt']),
@@ -46,17 +55,23 @@ class InviteModel {
 
   Map<String, dynamic> toJson() => {
         'inviteId': inviteId,
+        'inviteType': inviteType,
         'childId': childId,
         'childName': childName,
         'parentUid': parentUid,
         'parentName': parentName,
-        'teacherEmail': teacherEmail,
-        'teacherUid': teacherUid,
+        if (teacherEmail.isNotEmpty) 'teacherEmail': teacherEmail,
+        if (teacherUid != null) 'teacherUid': teacherUid,
+        if (hcwEmail.isNotEmpty) 'hcwEmail': hcwEmail,
+        if (hcwUid != null) 'hcwUid': hcwUid,
         'status': status,
         'createdAt': Timestamp.fromDate(createdAt),
         'expiresAt': Timestamp.fromDate(expiresAt),
         'inviteExpirySent': inviteExpirySent,
       };
+
+  bool get isHcwInvite => inviteType == 'hcw';
+  bool get isTeacherInvite => inviteType != 'hcw';
 
   bool get isPending => status == 'pending';
   bool get isAccepted => status == 'accepted';

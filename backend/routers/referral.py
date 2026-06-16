@@ -1,10 +1,21 @@
 import asyncio
-import os
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import FileResponse
 from services.referral_ai_service import ReferralAIService
+from auth_dependency import verify_firebase_token
+from child_auth import assert_child_access
 
 router = APIRouter()
+
+
+def _child_id_from_body(body: dict) -> str:
+    return body.get("childId") or (body.get("childData") or {}).get("childId") or ""
+
+
+def _verify_referral_child_access(body: dict, token: dict) -> None:
+    child_id = _child_id_from_body(body)
+    if child_id:
+        assert_child_access(token.get("uid", ""), child_id)
 
 
 def _absolute_url(request: Request, url: str) -> str:
@@ -13,47 +24,48 @@ def _absolute_url(request: Request, url: str) -> str:
     base = str(request.base_url).rstrip("/")
     return f"{base}{url}"
 
-def _use_local_mlx() -> bool:
-    return os.getenv("REFERRAL_USE_LOCAL_MODEL", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
 
 @router.post("/generate-referral-chat")
-async def generate_referral_chat(body: dict):
+async def generate_referral_chat(body: dict, token: dict = Depends(verify_firebase_token)):
+    """Generate referral/chat response with v5 runtime guardrails."""
+    _verify_referral_child_access(body, token)
+    ai = ReferralAIService.get_instance()
     try:
-        ai = ReferralAIService.get_instance()
-
-        # MLX needs the main thread GPU stream; Gemini can run in a worker thread
-        if _use_local_mlx() and ai.has_local_model:
-            text = ai.generate(
-                child_data=body["childData"],
-                hcw_instruction=body["hcwInstruction"],
-            )
-        else:
-            text = await asyncio.to_thread(
-                ai.generate,
-                child_data=body["childData"],
-                hcw_instruction=body["hcwInstruction"],
-            )
-
-        print(f"[REFERRAL] Response ready, {len(text)} chars")
-        payload = {"referralText": text, "success": True}
-        if getattr(ai, "last_generation_source", None) == "gemini":
-            payload["fallback"] = True
-        return payload
+        # MLX GPU stream must run on the main thread
+        result = ai.generate(
+            child_data=body["childData"],
+            hcw_instruction=body["hcwInstruction"],
+        )
+        print(
+            "[REFERRAL] Response ready, "
+            f"{len(result.text)} chars, intent={result.intent}, "
+            f"clarify={result.needs_clarification}"
+        )
+        return {
+            "referralText": result.text,
+            "success": result.success,
+            "source": result.source,
+            "intent": result.intent,
+            "needsClarification": result.needs_clarification,
+            "normalizedPrompt": result.normalized_prompt,
+        }
     except Exception as e:
-        print(f"[REFERRAL] Primary failed: {e}, trying fallback...")
-        try:
-            return await gemini_fallback(body)
-        except Exception as e2:
-            print(f"[REFERRAL] Fallback also failed: {e2}")
-            return {"referralText": f"Sorry, referral generation is temporarily unavailable. Please try again in a moment.\n\nError: {e2}", "success": False}
+        print("[REFERRAL] Generation failed.")
+        return {
+            "referralText": (
+                "Sorry, generation is temporarily unavailable. "
+                "Please retry once after restarting the backend service."
+            ),
+            "success": False,
+            "source": "error",
+            "intent": "error",
+            "needsClarification": False,
+            "normalizedPrompt": "",
+        }
+
 
 @router.get("/referral-exports/{filename}")
-async def download_referral_export(filename: str):
-    """Serve PDF/DOCX files when Cloudinary is not configured."""
+async def download_referral_export(filename: str, user=Depends(verify_firebase_token)):
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
     path = ReferralAIService.exports_dir() / filename
@@ -68,7 +80,8 @@ async def download_referral_export(filename: str):
 
 
 @router.post("/export-referral-pdf")
-async def export_pdf(body: dict, request: Request):
+async def export_pdf(body: dict, request: Request, token: dict = Depends(verify_firebase_token)):
+    _verify_referral_child_access(body, token)
     ai = ReferralAIService.get_instance()
     try:
         result = await asyncio.to_thread(
@@ -76,7 +89,7 @@ async def export_pdf(body: dict, request: Request):
         )
     except Exception as e:
         print(f"[REFERRAL-EXPORT] PDF failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="PDF export failed.") from e
     return {
         "pdfUrl": _absolute_url(request, result["url"]),
         "storage": result.get("storage", "unknown"),
@@ -85,7 +98,8 @@ async def export_pdf(body: dict, request: Request):
 
 
 @router.post("/export-referral-docx")
-async def export_docx(body: dict, request: Request):
+async def export_docx(body: dict, request: Request, token: dict = Depends(verify_firebase_token)):
+    _verify_referral_child_access(body, token)
     ai = ReferralAIService.get_instance()
     try:
         result = await asyncio.to_thread(
@@ -93,35 +107,9 @@ async def export_docx(body: dict, request: Request):
         )
     except Exception as e:
         print(f"[REFERRAL-EXPORT] DOCX failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="DOCX export failed.") from e
     return {
         "docxUrl": _absolute_url(request, result["url"]),
         "storage": result.get("storage", "unknown"),
         "filename": result.get("filename"),
     }
-
-# ── GEMINI FALLBACK (only used if local model fails) ──────────────────────────
-async def gemini_fallback(body: dict):
-    from google import genai
-    import os
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY not set")
-    client = genai.Client(api_key=api_key)
-    child = body["childData"]
-    prompt = f"""Generate a formal paediatric hearing referral letter.
-Patient: {child['name']}, {child['age']}, Risk: {child['riskLevel'].upper()} ({child['riskScore']}/100)
-HCW: {child['hcwName']}, {child['hcwHospital']}
-Instructions: {body['hcwInstruction']}
-Write complete letter:"""
-
-    def _call():
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        return response.text or ""
-
-    text = await asyncio.to_thread(_call)
-    print(f"[REFERRAL] Gemini fallback used, {len(text)} chars")
-    return {"referralText": text, "success": True, "fallback": True}

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 
 /// Splash screen — HearTech ear logo on Pale Teal, auto-routes after 2s.
 class SplashScreen extends ConsumerStatefulWidget {
@@ -105,26 +106,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Ear logo icon in white circle
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: HearTechColors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: HearTechColors.deepTeal.withValues(alpha: 0.15),
-                            blurRadius: 30,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.hearing,
-                        size: 64,
-                        color: HearTechColors.deepTeal,
-                      ),
-                    ),
+                    const HearTechLogo(size: 128),
                     const SizedBox(height: 24),
                     // App name — Nunito ExtraBold 32sp Deep Teal
                     Text(

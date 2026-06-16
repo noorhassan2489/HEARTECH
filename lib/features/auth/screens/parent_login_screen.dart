@@ -8,6 +8,8 @@ import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
+import 'package:heartech/shared/utils/portal_login.dart';
+import 'package:heartech/shared/utils/registration_flow.dart';
 
 /// Parent Login Screen
 class ParentLoginScreen extends ConsumerStatefulWidget {
@@ -18,6 +20,8 @@ class ParentLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
+  static const _portalRole = 'parent';
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -46,44 +50,12 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
 
       if (!mounted) return;
 
-      final user = authService.currentUser;
-      if (user == null) {
-        debugPrint('[HearTech] Parent login: currentUser is null after sign in!');
-        return;
-      }
-
-      debugPrint('[HearTech] Parent login: uid=${user.uid}, fetching Firestore profile...');
-      final firestoreService = ref.read(firestoreServiceProvider);
-      final profile = await firestoreService.getUser(user.uid);
-
+      final result = await PortalLogin.completeSignIn(
+        ref: ref,
+        expectedRole: _portalRole,
+      );
       if (!mounted) return;
-
-      if (profile == null) {
-        // Profile doesn't exist in Firestore yet — still go to dashboard
-        // The dashboard handles empty state gracefully
-        debugPrint('[HearTech] Parent login: no Firestore profile, going to dashboard anyway');
-        context.go(Routes.parentDashboard);
-        return;
-      }
-
-      debugPrint('[HearTech] Parent login: profile found, role=${profile.role}');
-
-      if (profile.role != 'parent') {
-        await authService.signOut();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
-              backgroundColor: HearTechColors.coralRed,
-            ),
-          );
-        }
-        return;
-      }
-
-      await authService.registerOneSignal(user.uid, profile.role);
-      debugPrint('[HearTech] Parent login: navigating to parent dashboard');
-      if (mounted) context.go(Routes.parentDashboard);
+      _handleLoginResult(result);
     } on FirebaseException catch (e) {
       debugPrint('[HearTech] Parent login: FirebaseException code=${e.code}');
       if (mounted) {
@@ -115,28 +87,11 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
       final authService = ref.read(firebaseAuthServiceProvider);
       final result = await authService.signInWithGoogle();
       if (result != null && mounted) {
-        final firestoreService = ref.read(firestoreServiceProvider);
-        final profile = await firestoreService.getUser(result.user!.uid);
-        if (profile != null && mounted) {
-          if (profile.role != 'parent') {
-            await authService.signOut();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('This account is registered as a ${profile.role}. Please use the ${profile.role} login.'),
-                  backgroundColor: HearTechColors.coralRed,
-                ),
-              );
-            }
-            return;
-          }
-          await authService.registerOneSignal(result.user!.uid, profile.role);
-          if (mounted) context.go(Routes.parentDashboard);
-        } else if (mounted) {
-          // No profile yet — go to dashboard anyway, it handles empty state
-          debugPrint('[HearTech] Google login: no Firestore profile, going to dashboard');
-          context.go(Routes.parentDashboard);
-        }
+        final loginResult = await PortalLogin.completeSignIn(
+          ref: ref,
+          expectedRole: _portalRole,
+        );
+        if (mounted) _handleLoginResult(loginResult);
       }
     } catch (e) {
       if (mounted) {
@@ -146,6 +101,25 @@ class _ParentLoginScreenState extends ConsumerState<ParentLoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _handleLoginResult(PortalLoginResult result) {
+    switch (result) {
+      case PortalLoginSuccess(:final dashboardRoute):
+        context.go(dashboardRoute);
+      case PortalLoginResumeRegistration(:final registerRoute):
+        context.go(registerRoute);
+      case PortalLoginWrongRole(:final actualRole):
+        final label = RegistrationFlow.roleLabel(actualRole);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'This account is a $label account. Please use the $label login portal.',
+            ),
+            backgroundColor: HearTechColors.coralRed,
+          ),
+        );
     }
   }
 

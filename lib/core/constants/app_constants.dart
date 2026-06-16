@@ -2,26 +2,49 @@
 // HEARTECH CONSTANTS — API URLs, service keys, app-wide constants
 // ============================================================================
 
+import 'dart:io' show Platform;
+
 class AppConstants {
   AppConstants._();
 
   // ── API ──────────────────────────────────────────────────────────────────
-  /// FastAPI base URL (Google Cloud Run or localhost for dev)
-  static const String fastApiBaseUrl = 'http://10.0.2.2:8000';
+  /// Override at build time for physical devices:
+  /// `--dart-define=FASTAPI_BASE_URL=http://192.168.x.x:8000`
+  static const String _fastApiBaseUrlOverride = String.fromEnvironment(
+    'FASTAPI_BASE_URL',
+    defaultValue: '',
+  );
+
+  /// FastAPI base URL — Android emulator uses 10.0.2.2; iOS sim uses localhost.
+  /// Physical phones must set [FASTAPI_BASE_URL] to your dev machine's LAN IP.
+  static String get fastApiBaseUrl {
+    final override = _fastApiBaseUrlOverride.trim();
+    if (override.isNotEmpty) return override;
+    if (Platform.isAndroid) {
+      return 'http://10.0.2.2:8000'; // Android emulator → host machine
+    }
+    return 'http://127.0.0.1:8000'; // iOS simulator / desktop
+  }
 
   // ── Cloudinary ───────────────────────────────────────────────────────────
-  /// Replace with your Cloudinary cloud name from dashboard
-  static const String cloudinaryCloudName = 'dl7pmkzzu';
-  static const String cloudinaryApiKey = '4js_Q8vWsZj5Kdjw1dtRDv_IlJQ';
+  /// Override at build time: --dart-define=CLOUDINARY_CLOUD_NAME=your_cloud
+  static const String cloudinaryCloudName = String.fromEnvironment(
+    'CLOUDINARY_CLOUD_NAME',
+    defaultValue: 'dl7pmkzzu',
+  );
+  /// Override at build time: --dart-define=CLOUDINARY_API_KEY=your_key
+  static const String cloudinaryApiKey = String.fromEnvironment(
+    'CLOUDINARY_API_KEY',
+    defaultValue: '4js_Q8vWsZj5Kdjw1dtRDv_IlJQ',
+  );
   static const String cloudinaryUploadPreset = 'heartech_unsigned';
 
   // ── OneSignal ────────────────────────────────────────────────────────────
-  /// Replace with your OneSignal App ID
-  static const String oneSignalAppId = '0200ac21-f1e9-417b-84de-38682079fb6b';
-
-  // ── Gemini ───────────────────────────────────────────────────────────────
-  /// Model string for Google Gemini API
-  static const String geminiModel = 'gemini-2.5-flash';
+  /// Override at build time: --dart-define=ONESIGNAL_APP_ID=your_app_id
+  static const String oneSignalAppId = String.fromEnvironment(
+    'ONESIGNAL_APP_ID',
+    defaultValue: '0200ac21-f1e9-417b-84de-38682079fb6b',
+  );
 
   // ── Handover Code ────────────────────────────────────────────────────────
   static const int handoverCodeLength = 6;

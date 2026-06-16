@@ -24,6 +24,25 @@ class SpeechLogModel {
   final String? teacherNote;
   final String? aiAnalysisSummary;
 
+  static const showAndTellGame = 'showAndTell';
+  static const lingSixGame = 'lingSix';
+
+  /// Canonicalize legacy/alternate game ids from Firestore or older builds.
+  static String normalizeGame(String? raw) {
+    final compact = (raw ?? '')
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s_-]+'), '');
+    switch (compact) {
+      case 'showandtell':
+        return showAndTellGame;
+      case 'lingsix':
+        return lingSixGame;
+      default:
+        return (raw ?? '').trim();
+    }
+  }
+
   const SpeechLogModel({
     required this.logId,
     required this.game,
@@ -45,7 +64,7 @@ class SpeechLogModel {
   factory SpeechLogModel.fromJson(Map<String, dynamic> json) {
     return SpeechLogModel(
       logId: json['logId'] as String? ?? '',
-      game: json['game'] as String? ?? '',
+      game: normalizeGame(json['game'] as String?),
       conductedBy: json['conductedBy'] as String? ?? '',
       conductorRole: json['conductorRole'] as String? ?? '',
       date: _parseTimestamp(json['date']),
@@ -71,7 +90,7 @@ class SpeechLogModel {
 
   Map<String, dynamic> toJson() => {
         'logId': logId,
-        'game': game,
+        'game': normalizeGame(game),
         'conductedBy': conductedBy,
         'conductorRole': conductorRole,
         'date': Timestamp.fromDate(date),
@@ -87,8 +106,23 @@ class SpeechLogModel {
         'aiAnalysisSummary': aiAnalysisSummary,
       };
 
-  bool get isShowAndTell => game == 'showAndTell';
-  bool get isLingSix => game == 'lingSix';
+  bool get isShowAndTell => normalizeGame(game) == showAndTellGame;
+  bool get isLingSix => normalizeGame(game) == lingSixGame;
+
+  String get gameDisplayName {
+    if (isShowAndTell) return 'Show & Tell';
+    if (isLingSix) return 'Ling Six';
+    return game.isEmpty ? 'Speech Session' : game;
+  }
+
+  static bool isShowAndTellGame(String? raw) => normalizeGame(raw) == showAndTellGame;
+  static bool isLingSixGame(String? raw) => normalizeGame(raw) == lingSixGame;
+  static String displayNameFor(String? raw) {
+    if (isShowAndTellGame(raw)) return 'Show & Tell';
+    if (isLingSixGame(raw)) return 'Ling Six';
+    final value = (raw ?? '').trim();
+    return value.isEmpty ? 'Speech Session' : value;
+  }
 
   static DateTime _parseTimestamp(dynamic value) {
     if (value is Timestamp) return value.toDate();

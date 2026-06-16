@@ -142,6 +142,8 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
                 });
 
                 if (filtered.isEmpty) {
+                  final hasPatients = children.isNotEmpty;
+                  final hasActiveFilters = _filterRisk != 'all' || _searchQuery.isNotEmpty;
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
@@ -150,19 +152,43 @@ class _HcwPatientsScreenState extends ConsumerState<HcwPatientsScreen> {
                         children: [
                           Icon(Icons.child_care, size: 56, color: HearTechColors.deepTeal.withValues(alpha: 0.3)),
                           const SizedBox(height: 12),
-                          Text('No patients yet', style: HearTechTextStyles.subtitle()),
-                          const SizedBox(height: 4),
-                          Text('Start a screening to add your first patient.',
-                              style: HearTechTextStyles.caption(), textAlign: TextAlign.center),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: 200,
-                            child: HearTechButton(
-                              label: 'Start Screening',
-                              icon: Icons.add,
-                              onPressed: () => context.go(Routes.hcwNewScreening),
-                            ),
+                          Text(
+                            hasPatients && hasActiveFilters
+                                ? 'No matching patients'
+                                : 'No patients yet',
+                            style: HearTechTextStyles.subtitle(),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hasPatients && hasActiveFilters
+                                ? 'Try clearing your search or filters.'
+                                : 'Start a screening to add your first patient.',
+                            style: HearTechTextStyles.caption(),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          if (hasPatients && hasActiveFilters)
+                            SizedBox(
+                              width: 200,
+                              child: HearTechButton(
+                                label: 'Clear Filters',
+                                onPressed: () => setState(() {
+                                  _filterRisk = 'all';
+                                  _searchQuery = '';
+                                  _searchCtrl.clear();
+                                }),
+                                isSecondary: true,
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              width: 200,
+                              child: HearTechButton(
+                                label: 'Start Screening',
+                                icon: Icons.add,
+                                onPressed: () => context.go(Routes.hcwNewScreening),
+                              ),
+                            ),
                         ],
                       ),
                     ),

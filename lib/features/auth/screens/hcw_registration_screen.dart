@@ -10,6 +10,9 @@ import 'package:heartech/shared/models/user_model.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/heartech_input_field.dart';
 import 'package:heartech/shared/widgets/step_indicator.dart';
+import 'package:heartech/shared/utils/media_upload.dart';
+import 'package:heartech/shared/utils/registration_flow.dart';
+import 'package:heartech/shared/widgets/registration_auth_step.dart';
 
 /// HCW Registration — 6 step flow.
 class HcwRegistrationScreen extends ConsumerStatefulWidget {
@@ -20,9 +23,12 @@ class HcwRegistrationScreen extends ConsumerStatefulWidget {
 }
 
 class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
+  static const _role = 'hcw';
+
   int _currentStep = 0;
   bool _isLoading = false;
   bool _isUploading = false;
+  RegistrationSessionState _session = const RegistrationSessionState();
 
   // Step 1 — Auth
   final _emailController = TextEditingController();
@@ -56,6 +62,53 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
   final _formKeys = List.generate(6, (_) => GlobalKey<FormState>());
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSession());
+  }
+
+  Future<void> _loadSession() async {
+    final session = await RegistrationFlow.prepareSession(
+      ref: ref,
+      currentRole: _role,
+      emailController: _emailController,
+    );
+    if (!mounted) return;
+    setState(() {
+      _session = session;
+      if (session.canContinue && session.resumeStep > 0) {
+        _currentStep = session.resumeStep;
+      }
+    });
+  }
+
+  Future<void> _persistProgress() async {
+    if (_currentStep < 1) return;
+    await RegistrationFlow.saveProgress(
+      ref: ref,
+      role: _role,
+      step: _currentStep,
+    );
+  }
+
+  Future<void> _useDifferentAccount() async {
+    await RegistrationFlow.signOutAndRestart(
+      ref: ref,
+      emailController: _emailController,
+      passwordController: _passwordController,
+      confirmPasswordController: _confirmPasswordController,
+      onCleared: () {
+        if (mounted) {
+          setState(() {
+            _currentStep = 0;
+            _session = const RegistrationSessionState();
+          });
+        }
+      },
+    );
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -68,39 +121,58 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
   }
 
   Future<void> _nextStep() async {
-    if (_currentStep < 5 && _formKeys[_currentStep].currentState?.validate() != true) return;
-
     if (_currentStep == 0) {
+      if (_session.canContinue) {
+        setState(() => _currentStep = _session.resumeStep > 0 ? _session.resumeStep : 1);
+        await _persistProgress();
+        return;
+      }
+      if (_session.mode == RegistrationAuthMode.wrongRolePending) return;
+      if (_formKeys[0].currentState?.validate() != true) return;
+
       setState(() => _isLoading = true);
       try {
         final authService = ref.read(firebaseAuthServiceProvider);
-        if (authService.currentUser == null) {
-          await authService.createAccountWithEmail(
-            _emailController.text.trim(),
-            _passwordController.text,
-          );
-        }
+        await authService.createAccountWithEmail(
+          _emailController.text.trim(),
+          _passwordController.text,
+        );
+        await RegistrationFlow.markPendingRole(ref: ref, role: _role, step: 1);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(_getAuthError(e.toString())), backgroundColor: HearTechColors.coralRed),
           );
+          setState(() => _isLoading = false);
         }
-        setState(() => _isLoading = false);
         return;
       }
-      setState(() => _isLoading = false);
+      if (!mounted) return;
+      final session = await RegistrationFlow.loadSession(ref: ref, currentRole: _role);
+      setState(() {
+        _isLoading = false;
+        _currentStep = 1;
+        _session = session;
+      });
+      return;
     }
 
+    if (_currentStep < 5 && _formKeys[_currentStep].currentState?.validate() != true) return;
+
+    if (!mounted) return;
     if (_currentStep < 5) {
       setState(() => _currentStep++);
+      await _persistProgress();
     } else {
       await _submitProfile();
     }
   }
 
   void _previousStep() {
-    if (_currentStep > 0) setState(() => _currentStep--);
+    if (_currentStep > 0) {
+      setState(() => _currentStep--);
+      if (_currentStep >= 1) _persistProgress();
+    }
   }
 
   Future<void> _signUpWithGoogle() async {
@@ -108,10 +180,18 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
     try {
       final authService = ref.read(firebaseAuthServiceProvider);
       final result = await authService.signInWithGoogle();
+      if (!mounted) return;
       if (result != null) {
         _emailController.text = result.user?.email ?? '';
         _nameController.text = result.user?.displayName ?? '';
-        setState(() => _currentStep = 1);
+        await RegistrationFlow.markPendingRole(ref: ref, role: _role, step: 1);
+        final session = await RegistrationFlow.loadSession(ref: ref, currentRole: _role);
+        if (mounted) {
+          setState(() {
+            _currentStep = 1;
+            _session = session;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -120,53 +200,67 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
         );
       }
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _pickLicenseDoc() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (picked != null) {
+    if (picked == null || !mounted) return;
+    setState(() {
+      _licenseFile = File(picked.path);
+      _licenseDocUrl = null;
+      _isUploading = true;
+    });
+    final cloudinary = ref.read(cloudinaryServiceProvider);
+    final url = await MediaUpload.uploadLicenseDocument(
+      context: context,
+      cloudinary: cloudinary,
+      file: _licenseFile!,
+    );
+    if (mounted) {
       setState(() {
-        _licenseFile = File(picked.path);
-        _isUploading = true;
+        _licenseDocUrl = url;
+        _isUploading = false;
       });
-      final cloudinary = ref.read(cloudinaryServiceProvider);
-      final url = await cloudinary.uploadImage(_licenseFile!, folder: 'heartech/licenses');
-      if (mounted) {
-        setState(() {
-          _licenseDocUrl = url;
-          _isUploading = false;
-        });
-        if (url != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('License uploaded!'), backgroundColor: HearTechColors.green),
-          );
-        }
-      }
     }
   }
 
   Future<void> _pickPhoto() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
-    if (picked != null) {
+    if (picked == null || !mounted) return;
+    setState(() {
+      _photoFile = File(picked.path);
+      _photoUrl = null;
+      _isUploading = true;
+    });
+    final cloudinary = ref.read(cloudinaryServiceProvider);
+    final url = await MediaUpload.uploadProfilePhoto(
+      context: context,
+      cloudinary: cloudinary,
+      file: File(picked.path),
+    );
+    if (mounted) {
       setState(() {
-        _photoFile = File(picked.path);
-        _isUploading = true;
+        _photoUrl = url;
+        _isUploading = false;
       });
-      final cloudinary = ref.read(cloudinaryServiceProvider);
-      final url = await cloudinary.uploadImage(_photoFile!, folder: 'heartech/profiles');
-      if (mounted) {
-        setState(() {
-          _photoUrl = url;
-          _isUploading = false;
-        });
-      }
     }
   }
 
+  bool get _hasPendingPhotoUpload => _photoFile != null && _photoUrl == null;
+
   Future<void> _submitProfile() async {
+    if (_hasPendingPhotoUpload) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Photo upload incomplete — go back and tap photo to retry.'),
+          backgroundColor: HearTechColors.coralRed,
+        ),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final authService = ref.read(firebaseAuthServiceProvider);
@@ -195,6 +289,8 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
 
       await firestoreService.setUser(user);
 
+      await RegistrationFlow.clearPendingRegistration();
+
       // Register OneSignal
       await authService.registerOneSignal(uid, 'hcw');
 
@@ -206,7 +302,7 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
         );
       }
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   String _getAuthError(String error) {
@@ -277,31 +373,27 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
   }
 
   Widget _buildAuthStep() {
-    return Form(key: _formKeys[0], child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Create Your Account', style: HearTechTextStyles.screenTitle()),
-        const SizedBox(height: 8),
-        Text('Step 1 of 6 — Authentication', style: HearTechTextStyles.caption()),
-        const SizedBox(height: 32),
-        HearTechInputField(controller: _emailController, label: 'Email', prefixIcon: Icons.email_outlined,
-          keyboardType: TextInputType.emailAddress,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : (!v.contains('@') ? 'Invalid email' : null)),
-        const SizedBox(height: 16),
-        HearTechInputField(controller: _passwordController, label: 'Password', prefixIcon: Icons.lock_outline,
-          obscureText: _obscurePassword,
-          suffix: IconButton(icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-            onPressed: () => setState(() => _obscurePassword = !_obscurePassword)),
-          validator: (v) => (v != null && v.length < 6) ? 'Min 6 characters' : ((v == null || v.isEmpty) ? 'Required' : null)),
-        const SizedBox(height: 16),
-        HearTechInputField(controller: _confirmPasswordController, label: 'Confirm Password', prefixIcon: Icons.lock_outline,
-          obscureText: true, validator: (v) => v != _passwordController.text ? 'Passwords do not match' : null),
-        const SizedBox(height: 24),
-        HearTechButton(label: 'Create Account', onPressed: _nextStep, isLoading: _isLoading),
-        const SizedBox(height: 16),
-        HearTechButton(label: 'Sign up with Google', onPressed: _signUpWithGoogle, isSecondary: true, icon: Icons.g_mobiledata),
-      ],
-    ));
+    return RegistrationAuthStep(
+      formKey: _formKeys[0],
+      emailController: _emailController,
+      passwordController: _passwordController,
+      confirmPasswordController: _confirmPasswordController,
+      obscurePassword: _obscurePassword,
+      onToggleObscurePassword: () => setState(() => _obscurePassword = !_obscurePassword),
+      isLoading: _isLoading,
+      mode: _session.mode,
+      currentRoleLabel: RegistrationFlow.roleLabel(_role),
+      pendingRoleLabel: _session.pendingRole != null
+          ? RegistrationFlow.roleLabel(_session.pendingRole!)
+          : null,
+      onPrimaryPressed: _nextStep,
+      onGooglePressed: _signUpWithGoogle,
+      onUseDifferentAccount: _useDifferentAccount,
+      onGoToPendingRegistration: _session.pendingRole != null
+          ? () => context.go(RegistrationFlow.registerRouteForRole(_session.pendingRole!))
+          : null,
+      totalSteps: 6,
+    );
   }
 
   Widget _buildPersonalStep() {
@@ -438,11 +530,17 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
         ),
         if (_licenseDocUrl != null) ...[
           const SizedBox(height: 8),
-          Row(children: [
-            const Icon(Icons.check_circle, color: HearTechColors.green, size: 16),
-            const SizedBox(width: 4),
-            Text('Uploaded successfully', style: HearTechTextStyles.caption(color: HearTechColors.green)),
-          ]),
+          UploadStatusRow(
+            hasLocalFile: _licenseFile != null,
+            uploadedUrl: _licenseDocUrl,
+            successLabel: 'Uploaded successfully',
+          ),
+        ] else if (_licenseFile != null) ...[
+          const SizedBox(height: 8),
+          UploadStatusRow(
+            hasLocalFile: true,
+            uploadedUrl: null,
+          ),
         ],
         const SizedBox(height: 20),
         // Orange info card
@@ -497,11 +595,18 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
         ),
         if (_photoUrl != null) ...[
           const SizedBox(height: 8),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.check_circle, color: HearTechColors.green, size: 16),
-            const SizedBox(width: 4),
-            Text('Photo uploaded', style: HearTechTextStyles.caption(color: HearTechColors.green)),
-          ]),
+          UploadStatusRow(
+            hasLocalFile: _photoFile != null,
+            uploadedUrl: _photoUrl,
+            successLabel: 'Photo uploaded',
+          ),
+        ] else if (_photoFile != null) ...[
+          const SizedBox(height: 8),
+          UploadStatusRow(
+            hasLocalFile: true,
+            uploadedUrl: null,
+            failureLabel: 'Upload failed — tap photo to retry',
+          ),
         ],
         const SizedBox(height: 16),
         Center(child: TextButton(onPressed: _pickPhoto, child: Text('Choose Photo', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)))),
@@ -525,8 +630,32 @@ class _HcwRegistrationScreenState extends ConsumerState<HcwRegistrationScreen> {
           width: double.infinity, padding: const EdgeInsets.all(20),
           decoration: HearTechDecorations.cardDecoration,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (_photoFile != null) ...[
-              Center(child: CircleAvatar(radius: 40, backgroundImage: FileImage(_photoFile!))),
+            if (_hasPendingPhotoUpload) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: HearTechColors.coralRed.withValues(alpha: 0.1),
+                  borderRadius: HearTechDecorations.cardBorderRadius,
+                ),
+                child: Text(
+                  'Profile photo upload failed. Go back to Step 5 and retry before submitting.',
+                  style: HearTechTextStyles.caption(color: HearTechColors.coralRed),
+                ),
+              ),
+            ],
+            if (_photoUrl != null) ...[
+              Center(child: CircleAvatar(radius: 40, backgroundImage: NetworkImage(_photoUrl!))),
+              const SizedBox(height: 16),
+            ] else if (_photoFile != null) ...[
+              Center(
+                child: CircleAvatar(
+                  radius: 40,
+                  backgroundColor: HearTechColors.paleTeal,
+                  child: const Icon(Icons.warning_amber, color: HearTechColors.coralRed),
+                ),
+              ),
               const SizedBox(height: 16),
             ],
             _reviewRow('Name', _nameController.text),

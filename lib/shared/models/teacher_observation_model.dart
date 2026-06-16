@@ -9,6 +9,9 @@ class TeacherObservationModel {
   final List<ObservationAnswer> answers;
   final String? openNote;
   final int? riskScoreContribution;
+  final bool isVisibleToHcw;
+  final List<String> visibleToHcwIds;
+  final String? parentId;
 
   const TeacherObservationModel({
     required this.obsId,
@@ -18,6 +21,9 @@ class TeacherObservationModel {
     this.answers = const [],
     this.openNote,
     this.riskScoreContribution,
+    this.isVisibleToHcw = false,
+    this.visibleToHcwIds = const [],
+    this.parentId,
   });
 
   factory TeacherObservationModel.fromJson(Map<String, dynamic> json) {
@@ -33,6 +39,9 @@ class TeacherObservationModel {
           [],
       openNote: json['openNote'] as String?,
       riskScoreContribution: json['riskScoreContribution'] as int?,
+      isVisibleToHcw: json['isVisibleToHcw'] as bool? ?? false,
+      visibleToHcwIds: List<String>.from(json['visibleToHcwIds'] ?? []),
+      parentId: json['parentId'] as String?,
     );
   }
 
@@ -44,6 +53,9 @@ class TeacherObservationModel {
         'answers': answers.map((a) => a.toJson()).toList(),
         'openNote': openNote,
         'riskScoreContribution': riskScoreContribution,
+        'isVisibleToHcw': isVisibleToHcw,
+        if (visibleToHcwIds.isNotEmpty) 'visibleToHcwIds': visibleToHcwIds,
+        if (parentId != null && parentId!.isNotEmpty) 'parentId': parentId,
       };
 
   static DateTime _parseTimestamp(dynamic value) {

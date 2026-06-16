@@ -10,11 +10,10 @@ import 'package:heartech/shared/models/invite_model.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 import 'package:intl/intl.dart';
 
-/// Teacher Pending Invites — accept or decline linking invitations.
-/// Features: per-card loading state, live countdown timer, styled buttons,
-/// confirm dialog on decline, purple left border accent.
+/// Teacher or HCW Pending Invites — accept or decline linking invitations.
 class PendingInvitesScreen extends ConsumerStatefulWidget {
-  const PendingInvitesScreen({super.key});
+  final String role; // teacher, hcw
+  const PendingInvitesScreen({super.key, this.role = 'teacher'});
 
   @override
   ConsumerState<PendingInvitesScreen> createState() => _PendingInvitesScreenState();
@@ -46,6 +45,7 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
       await ref.read(fastApiServiceProvider).respondInvite(
         inviteId: inviteId,
         action: action,
+        inviteType: widget.role,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -112,6 +112,9 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
     final firestoreService = ref.read(firestoreServiceProvider);
     final authService = ref.read(firebaseAuthServiceProvider);
     final uid = authService.uid;
+    final isHcw = widget.role == 'hcw';
+    final accentColor = isHcw ? HearTechColors.deepTeal : HearTechColors.purple;
+    final dashboardRoute = isHcw ? Routes.hcwDashboard : Routes.teacherDashboard;
 
     if (uid == null) {
       return Scaffold(
@@ -126,13 +129,15 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
         backgroundColor: Colors.transparent, elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: HearTechColors.textPrimary),
-          onPressed: () => context.go(Routes.teacherDashboard),
+          onPressed: () => context.go(dashboardRoute),
         ),
         title: Text('Pending Invites', style: HearTechTextStyles.sectionHeader()),
         centerTitle: true,
       ),
       body: StreamBuilder<List<InviteModel>>(
-        stream: firestoreService.streamPendingInvitesForTeacher(uid),
+        stream: isHcw
+            ? firestoreService.streamPendingInvitesForHcw(uid)
+            : firestoreService.streamPendingInvitesForTeacher(uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const LoadingIndicator(message: 'Loading invites...');
@@ -149,16 +154,18 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
                     Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: HearTechColors.purple.withValues(alpha: 0.1),
+                        color: accentColor.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.mail_outline, size: 56, color: HearTechColors.purple),
+                      child: Icon(Icons.mail_outline, size: 56, color: accentColor),
                     ),
                     const SizedBox(height: 20),
                     Text('No Pending Invites', style: HearTechTextStyles.screenTitle()),
                     const SizedBox(height: 8),
                     Text(
-                      'Wait for a parent to invite you. Invites will appear here.',
+                      isHcw
+                          ? 'Wait for a parent to invite you. Patient invites will appear here.'
+                          : 'Wait for a parent to invite you. Invites will appear here.',
                       style: HearTechTextStyles.body(color: HearTechColors.textSecondary),
                       textAlign: TextAlign.center,
                     ),
@@ -183,8 +190,8 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
                   color: HearTechColors.white,
                   borderRadius: HearTechDecorations.cardBorderRadius,
                   boxShadow: HearTechDecorations.cardShadow,
-                  border: const Border(
-                    left: BorderSide(color: HearTechColors.purple, width: 4),
+                  border: Border(
+                    left: BorderSide(color: accentColor, width: 4),
                   ),
                 ),
                 child: Column(
@@ -196,10 +203,10 @@ class _PendingInvitesScreenState extends ConsumerState<PendingInvitesScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: HearTechColors.purple.withValues(alpha: 0.1),
+                            color: accentColor.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.child_care, color: HearTechColors.purple),
+                          child: Icon(Icons.child_care, color: accentColor),
                         ),
                         const SizedBox(width: 12),
                         Expanded(

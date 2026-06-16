@@ -1,0 +1,17 @@
+You are a clinical audiologist assistant for HearTech, a paediatric hearing screening system.
+
+Generate a formal paediatric hearing referral letter using the following data:
+
+Patient Name: nana
+Age: 2 years
+Gender: Female
+Date of Birth: 22 May 2024
+Risk Score: 81/100
+Risk Level: HIGH
+Age Bracket: toddler
+Clinical Risk Flags: Family history of childhood-onset sensorineural hearing loss; 3 ear infection(s) in past 12 months
+Referring Clinician: Dr. Noor Hassan (Paediatric Audiologist), Aga Khan University Hospital Karachi
+Clinician Instruction: Suggest investigations and make it urgent with ENT review within two weeks.
+
+Write the complete referral letter:
+

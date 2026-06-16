@@ -5,6 +5,7 @@ import 'firebase_options.dart';
 import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:heartech/services/offline_service.dart';
+import 'package:heartech/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,17 +16,33 @@ void main() async {
   // Initialize Hive for offline caching
   await OfflineService.initialize();
 
-  // Initialize OneSignal — uncomment when you have the App ID configured
-  // await NotificationService.initialize();
+  // OneSignal — push alerts + tap-to-navigate (handler wired in HearTechApp)
+  await NotificationService.initialize();
 
   runApp(const ProviderScope(child: HearTechApp()));
 }
 
-class HearTechApp extends ConsumerWidget {
+class HearTechApp extends ConsumerStatefulWidget {
   const HearTechApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HearTechApp> createState() => _HearTechAppState();
+}
+
+class _HearTechAppState extends ConsumerState<HearTechApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final router = ref.read(routerProvider);
+      NotificationService.setNavigationHandler((route) {
+        router.push(route);
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(

@@ -12,13 +12,16 @@ import 'package:heartech/shared/widgets/screening_progress_bar.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 import 'package:heartech/shared/widgets/risk_badge.dart';
+import 'package:heartech/services/fastapi_service.dart';
 
 /// Teacher Observation Form — select a child, answer observation questions,
 /// add optional note, review, and submit.
 /// Features: clinical chip tags, back button in questionnaire, character count
 /// on note, child header in review, stagger animations.
 class TeacherObservationScreen extends ConsumerStatefulWidget {
-  const TeacherObservationScreen({super.key});
+  final String? preselectedChildId;
+
+  const TeacherObservationScreen({super.key, this.preselectedChildId});
 
   @override
   ConsumerState<TeacherObservationScreen> createState() => _TeacherObservationScreenState();
@@ -36,6 +39,33 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
   String? _selectedResponse;
 
   final List<String> _responseOptions = ['always', 'often', 'sometimes', 'rarely', 'never'];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.preselectedChildId != null &&
+        widget.preselectedChildId!.isNotEmpty) {
+      Future.microtask(_loadPreselectedChild);
+    }
+  }
+
+  Future<void> _loadPreselectedChild() async {
+    setState(() => _isLoading = true);
+    try {
+      final child = await ref
+          .read(firestoreServiceProvider)
+          .getChild(widget.preselectedChildId!);
+      if (child != null && mounted) {
+        await _fetchQuestions(child);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Child not found.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   int get _step {
     if (_selectedChild == null) return 0;
@@ -112,7 +142,7 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to load questions: $e'),
+            SnackBar(content: Text('Failed to load questions: ${FastApiService.userFacingMessage(e)}'),
                 backgroundColor: HearTechColors.coralRed));
         setState(() => _selectedChild = null);
       }
@@ -154,8 +184,7 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
         childId: child.childId,
       );
 
-      final newRiskScore = response['riskScore'] as int;
-      final newRiskLevel = response['riskLevel'] as String;
+      final sessionScore = response['riskScore'] as int;
 
       final obsId = firestoreService.generateId('observations');
       final obs = TeacherObservationModel(
@@ -167,28 +196,27 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
         openNote: _noteController.text.trim().isNotEmpty
             ? _noteController.text.trim()
             : null,
-        riskScoreContribution: newRiskScore,
+        riskScoreContribution: sessionScore,
+        parentId: child.parentId,
       );
 
       await firestoreService.addTeacherObservation(child.childId, obs);
 
-      // Update child document
+      final aggregate = await fastApi.aggregateRiskScore(
+        childId: child.childId,
+        trigger: 'teacher_observation',
+      );
+      final newRiskScore = aggregate['riskScore'] as int;
+      final newRiskLevel = aggregate['riskLevel'] as String;
+
       await firestoreService.updateChild(child.childId, {
         'riskScore': newRiskScore,
         'riskLevel': newRiskLevel,
         'lastTeacherObservationDate': DateTime.now().toIso8601String(),
+        'lastUpdatedAt': DateTime.now(),
+        if (aggregate['breakdown'] != null) 'riskBreakdown': aggregate['breakdown'],
       });
 
-      // ALWAYS fire HCW-04 and PAR-07
-      if (child.hcwIds.isNotEmpty) {
-        await fastApi.sendNotification(
-          uid: child.hcwIds.first,
-          type: 'HCW-04',
-          title: 'New Teacher Observation',
-          body: 'A new classroom observation was submitted for ${child.name}.',
-          relatedChildId: child.childId,
-        );
-      }
       if (child.parentId != null) {
         await fastApi.sendNotification(
           uid: child.parentId!,
@@ -196,6 +224,20 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
           title: 'New Classroom Observation',
           body: 'The teacher submitted a new observation for ${child.name}.',
           relatedChildId: child.childId,
+          navigationRoute:
+              '${Routes.parentChildProfile.replaceFirst(':childId', child.childId)}?tab=observations',
+        );
+      }
+
+      if (child.hcwIds.isNotEmpty) {
+        await fastApi.sendNotification(
+          uid: child.hcwIds.first,
+          type: 'HCW-04',
+          title: 'New Teacher Observation',
+          body: 'A teacher submitted a classroom observation for ${child.name}.',
+          relatedChildId: child.childId,
+          navigationRoute:
+              '${Routes.hcwChildProfile.replaceFirst(':childId', child.childId)}?tab=observations',
         );
       }
 
@@ -219,6 +261,19 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
             title: 'Health Alert for ${child.name}',
             body: 'Risk level for ${child.name} changed to $newRiskLevel.',
             relatedChildId: child.childId,
+            navigationRoute:
+                Routes.parentChildProfile.replaceFirst(':childId', child.childId),
+          );
+        }
+        for (final tid in child.teacherIds) {
+          await fastApi.sendNotification(
+            uid: tid,
+            type: 'TCH-03',
+            title: 'Student Risk Update',
+            body: '${child.name}\'s hearing assessment has been updated.',
+            relatedChildId: child.childId,
+            navigationRoute:
+                Routes.teacherChildProfile.replaceFirst(':childId', child.childId),
           );
         }
       }
@@ -230,7 +285,7 @@ class _TeacherObservationScreenState extends ConsumerState<TeacherObservationScr
           SnackBar(
             content: Text(
                 'Observation submitted for ${child.name}. '
-                'The parent and healthcare provider have been notified.'),
+                'The parent has been notified.'),
             backgroundColor: HearTechColors.green,
             duration: const Duration(seconds: 4),
           ),

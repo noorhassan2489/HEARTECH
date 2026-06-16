@@ -12,9 +12,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # HEARTECH FASTAPI — Main application entry point
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Initialize Firebase Admin SDK
 if not firebase_admin._apps:
-    # Use default credentials (for Cloud Run) or service account key
     if os.path.exists("service-account-key.json"):
         cred = credentials.Certificate("service-account-key.json")
         firebase_admin.initialize_app(cred)
@@ -67,14 +65,17 @@ from routers.notifications import router as notifications_router
 from routers.profile import router as profile_router
 from routers.invites import router as invites_router
 from routers.questionnaires import router as questionnaires_router
+from services.referral_ai_service import ReferralAIService
 
-app.include_router(risk_score_router, prefix="/api", tags=["Risk Scoring"])
-app.include_router(referral_router, prefix="/api", tags=["Referrals"])
-app.include_router(speech_router, prefix="/api", tags=["Speech Analysis"])
+_protected = [Depends(verify_firebase_token)]
+
+app.include_router(risk_score_router, prefix="/api", tags=["Risk Scoring"], dependencies=_protected)
+app.include_router(referral_router, prefix="/api", tags=["Referrals"], dependencies=_protected)
+app.include_router(speech_router, prefix="/api", tags=["Speech Analysis"], dependencies=_protected)
 app.include_router(utils_router, prefix="/api", tags=["Utilities"])
-app.include_router(notifications_router, prefix="/api", tags=["Notifications"])
-app.include_router(profile_router, prefix="/api", tags=["Profile Management"])
-app.include_router(invites_router, prefix="/api", tags=["Invites"])
+app.include_router(notifications_router, prefix="/api", tags=["Notifications"], dependencies=_protected)
+app.include_router(profile_router, prefix="/api", tags=["Profile Management"], dependencies=_protected)
+app.include_router(invites_router, prefix="/api", tags=["Invites"], dependencies=_protected)
 app.include_router(questionnaires_router, prefix="/api", tags=["Questionnaires"])
 
 
@@ -88,11 +89,20 @@ from cron_jobs import setup_cron_jobs
 async def startup():
     setup_cron_jobs()
 
-    # ── Load Whisper model once at startup ────────────────────────────────
+    # Whisper loads on first speech request — keeps GPU RAM free for referral chat.
+    app.state.whisper_model = None
+    app.state.whisper_load_attempted = False
+    print("[STARTUP] Whisper deferred (loads on first speech analysis request).")
+
+    import shutil
+    if shutil.which("ffmpeg"):
+        print("[STARTUP] ffmpeg found — speech transcription ready.")
+    else:
+        print("[STARTUP] WARNING: ffmpeg not found. Install with: brew install ffmpeg")
+
+    # Referral model loads lazily on first chat request to avoid Metal OOM with Whisper.
     try:
-        import whisper
-        app.state.whisper_model = whisper.load_model("base")
-        print("[STARTUP] Whisper 'base' model loaded successfully.")
+        ReferralAIService.get_instance()
+        print("[STARTUP] ReferralAIService ready (model loads on first chat request).")
     except Exception as e:
-        print(f"[STARTUP] WARNING: Failed to load Whisper model: {e}")
-        app.state.whisper_model = None
+        print(f"[STARTUP] WARNING: Failed to initialize ReferralAIService: {e}")

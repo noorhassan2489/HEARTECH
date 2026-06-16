@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 import 'package:heartech/shared/widgets/avatar_circle.dart';
 
 /// About HearTech — app information, disclaimer, team, and tech stack.
@@ -25,20 +26,13 @@ class AboutScreen extends StatelessWidget {
         child: Column(
           children: [
             // ── Logo Section ──────────────────────────────────────────────
-            const Icon(Icons.hearing, size: 80, color: HearTechColors.deepTeal),
+            const HearTechLogo(size: 120),
             const SizedBox(height: 12),
-            const Text('HearTech', style: TextStyle(
-              fontFamily: 'Nunito', fontWeight: FontWeight.w800,
-              fontSize: 28, color: HearTechColors.deepTeal,
-            )),
+            Text('HearTech', style: HearTechTextStyles.screenTitle()),
             const SizedBox(height: 4),
-            const Text('Early Hearing, Better Futures', style: TextStyle(
-              fontFamily: 'Nunito', fontSize: 14, color: HearTechColors.textSecondary,
-            )),
+            Text('Early Hearing, Better Futures', style: HearTechTextStyles.caption()),
             const SizedBox(height: 4),
-            const Text('Version 1.0.0', style: TextStyle(
-              fontFamily: 'Nunito', fontSize: 12, color: HearTechColors.textSecondary,
-            )),
+            Text('Version 1.0.0', style: HearTechTextStyles.caption()),
             const SizedBox(height: 32),
 
             // ── What Is HearTech ──────────────────────────────────────────
@@ -46,7 +40,7 @@ class AboutScreen extends StatelessWidget {
               icon: Icons.info_outline,
               title: 'What Is HearTech',
               iconColor: HearTechColors.deepTeal,
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -54,16 +48,14 @@ class AboutScreen extends StatelessWidget {
                     'designed to help healthcare workers, parents, and teachers work '
                     'together to identify and monitor potential hearing concerns in '
                     'children aged 0 to 12 years.',
-                    style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
-                        color: HearTechColors.textPrimary, height: 1.5),
+                    style: HearTechTextStyles.body(),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Text(
                     'The app is a screening and decision-support tool. It does not '
                     'provide medical diagnoses. All results should be discussed with '
                     'a qualified healthcare professional.',
-                    style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
-                        color: HearTechColors.textPrimary, height: 1.5),
+                    style: HearTechTextStyles.body(),
                   ),
                 ],
               ),
@@ -81,28 +73,23 @@ class AboutScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(children: [
-                    Icon(Icons.warning_amber_rounded, color: HearTechColors.coralRed, size: 22),
-                    SizedBox(width: 10),
-                    Text('Important Disclaimer', style: TextStyle(
-                      fontFamily: 'Nunito', fontWeight: FontWeight.w700,
-                      fontSize: 16, color: HearTechColors.coralRed,
-                    )),
+                  Row(children: [
+                    const Icon(Icons.warning_amber_rounded, color: HearTechColors.coralRed, size: 22),
+                    const SizedBox(width: 10),
+                    Text('Important Disclaimer', style: HearTechTextStyles.subtitle(color: HearTechColors.coralRed)),
                   ]),
                   Divider(color: HearTechColors.coralRed.withValues(alpha: 0.3), height: 20),
-                  const Text(
+                  Text(
                     'HearTech is NOT a medical diagnostic tool. The risk assessments '
                     'provided are based on observational screening data and are intended '
                     'to guide — not replace — clinical evaluation.',
-                    style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
-                        color: HearTechColors.textPrimary, height: 1.5),
+                    style: HearTechTextStyles.body(),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Always consult a qualified audiologist, ENT specialist, or '
                     'paediatrician for a formal hearing assessment.',
-                    style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
-                        color: HearTechColors.textPrimary, height: 1.5),
+                    style: HearTechTextStyles.body(),
                   ),
                 ],
               ),
@@ -257,10 +244,7 @@ class AboutScreen extends StatelessWidget {
           Row(children: [
             Icon(icon, color: iconColor, size: 22),
             const SizedBox(width: 10),
-            Text(title, style: const TextStyle(
-              fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 16,
-              color: HearTechColors.textPrimary,
-            )),
+            Text(title, style: HearTechTextStyles.subtitle()),
           ]),
           const Divider(height: 20),
           child,

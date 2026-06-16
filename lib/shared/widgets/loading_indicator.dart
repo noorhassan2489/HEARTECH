@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/shared/widgets/heartech_logo.dart';
 
 /// Pulsing teal ear icon loading indicator.
 /// Scale pulses from 1.0 → 1.15 → 1.0 continuously.
@@ -54,11 +55,7 @@ class _LoadingIndicatorState extends State<LoadingIndicator>
                 scale: _scaleAnimation.value,
                 child: Opacity(
                   opacity: _opacityAnimation.value,
-                  child: Icon(
-                    Icons.hearing,
-                    size: widget.size,
-                    color: HearTechColors.deepTeal,
-                  ),
+                  child: HearTechLogo(size: widget.size),
                 ),
               );
             },

@@ -8,6 +8,7 @@ class OfflineService {
   static const String questionnairesBox = 'questionnaires_box';
   static const String notificationsBox = 'notifications_box';
   static const String pendingSyncBox = 'pending_sync_box';
+  static const String registrationBox = 'registration_box';
 
   /// Initialize Hive and open all boxes.
   static Future<void> initialize() async {
@@ -17,6 +18,7 @@ class OfflineService {
     await Hive.openBox(questionnairesBox);
     await Hive.openBox(notificationsBox);
     await Hive.openBox(pendingSyncBox);
+    await Hive.openBox(registrationBox);
   }
 
   /// Check if device is online.

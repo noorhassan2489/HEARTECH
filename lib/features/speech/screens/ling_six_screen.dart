@@ -1,13 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:heartech/core/theme/app_theme.dart';
+import 'package:heartech/core/router/navigation_utils.dart';
 import 'package:heartech/core/di/providers.dart';
 import 'package:heartech/shared/models/speech_log_model.dart';
+import 'package:heartech/features/speech/utils/speech_session_notifications.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
+
+class _LingSoundMeta {
+  const _LingSoundMeta({
+    required this.sound,
+    required this.display,
+    required this.freq,
+    required this.label,
+  });
+
+  final String sound;
+  final String display;
+  final String freq;
+  final String label;
+}
 
 class LingSixScreen extends ConsumerStatefulWidget {
   final String childId;
@@ -21,21 +36,39 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
   int _phase = 0;
   int _round = 1;
   bool _isPlayingSound = false;
+  int? _currentPlayingIndex;
   bool _isSaving = false;
+  bool _isLoadingAssets = true;
+  String _assetsMessage = '';
   late final AudioPlayer _audioPlayer;
 
-  final _sounds = const [
-    {'sound': 'm', 'display': '/m/', 'freq': '250-500 Hz', 'label': 'Low frequency'},
-    {'sound': 'ah', 'display': '/ah/', 'freq': '500-1000 Hz', 'label': 'Low-mid'},
-    {'sound': 'oo', 'display': '/oo/', 'freq': '500-1000 Hz', 'label': 'Mid'},
-    {'sound': 'ee', 'display': '/ee/', 'freq': '1000-3000 Hz', 'label': 'Mid-high'},
-    {'sound': 'sh', 'display': '/sh/', 'freq': '2000-4000 Hz', 'label': 'High'},
-    {'sound': 's', 'display': '/s/', 'freq': '4000-8000 Hz', 'label': 'Very high'},
+  static const _soundCount = 6;
+
+  static const _defaultSounds = <_LingSoundMeta>[
+    _LingSoundMeta(sound: 'm', display: '/m/', freq: '250-500 Hz', label: 'Low frequency'),
+    _LingSoundMeta(sound: 'ah', display: '/ah/', freq: '500-1000 Hz', label: 'Low-mid'),
+    _LingSoundMeta(sound: 'oo', display: '/oo/', freq: '500-1000 Hz', label: 'Mid'),
+    _LingSoundMeta(sound: 'ee', display: '/ee/', freq: '1000-3000 Hz', label: 'Mid-high'),
+    _LingSoundMeta(sound: 'sh', display: '/sh/', freq: '2000-4000 Hz', label: 'High'),
+    _LingSoundMeta(sound: 's', display: '/s/', freq: '4000-8000 Hz', label: 'Very high'),
   ];
+
+  List<_LingSoundMeta> _sounds = List<_LingSoundMeta>.from(_defaultSounds);
+  final Map<String, String> _audioUrls = {};
+  final Map<String, String> _imageUrls = {};
+  final Map<String, IconData> _lingFallbackIcons = const {
+    'm': Icons.multitrack_audio,
+    'ah': Icons.music_note,
+    'oo': Icons.surround_sound,
+    'ee': Icons.graphic_eq,
+    'sh': Icons.hearing,
+    's': Icons.waves,
+  };
 
   // null = not answered yet
   final Map<int, bool?> _round1 = {};
   final Map<int, bool?> _round2 = {};
+  int _activeSoundIndex = 0;
   Map<int, bool?> get _current => _round == 1 ? _round1 : _round2;
 
   // API result
@@ -45,6 +78,63 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
   void initState() {
     super.initState();
     _audioPlayer = AudioPlayer();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAssets());
+  }
+
+  _LingSoundMeta _metaFor(int index) {
+    if (index < 0 || index >= _soundCount) return _defaultSounds[0];
+    if (index >= _sounds.length) return _defaultSounds[index];
+    return _sounds[index];
+  }
+
+  Future<void> _loadAssets() async {
+    _assetsMessage = '';
+    _audioUrls.clear();
+    _imageUrls.clear();
+    _sounds = List<_LingSoundMeta>.from(_defaultSounds);
+
+    try {
+      final api = ref.read(fastApiServiceProvider);
+      final data = await api.getLingSixAssets();
+      _assetsMessage = data['message'] as String? ?? '';
+      final soundsRaw = data['sounds'] as List?;
+      if (soundsRaw != null) {
+        for (final item in soundsRaw) {
+          final sound = Map<String, dynamic>.from(item as Map);
+          final key = (sound['sound'] as String? ?? '').toLowerCase().trim();
+          if (key.isEmpty) continue;
+
+          final audioUrl = sound['audioUrl'] as String?;
+          if (audioUrl != null && audioUrl.isNotEmpty) {
+            _audioUrls[key] = audioUrl;
+          }
+          final imageUrl = sound['imageUrl'] as String?;
+          if (imageUrl != null && imageUrl.isNotEmpty) {
+            _imageUrls[key] = imageUrl;
+          }
+
+          final index = _defaultSounds.indexWhere((s) => s.sound == key);
+          if (index >= 0) {
+            final fallback = _defaultSounds[index];
+            _sounds[index] = _LingSoundMeta(
+              sound: key,
+              display: (sound['display'] as String?)?.trim().isNotEmpty == true
+                  ? (sound['display'] as String).trim()
+                  : fallback.display,
+              freq: (sound['frequency'] as String?)?.trim().isNotEmpty == true
+                  ? (sound['frequency'] as String).trim()
+                  : fallback.freq,
+              label: (sound['label'] as String?)?.trim().isNotEmpty == true
+                  ? (sound['label'] as String).trim()
+                  : fallback.label,
+            );
+          }
+        }
+      }
+    } catch (_) {
+      _assetsMessage = 'Could not load Ling Six assets from server. Using local fallback.';
+    }
+    if (mounted) setState(() => _isLoadingAssets = false);
   }
 
   @override
@@ -54,13 +144,23 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
   }
 
   int get _answeredCount => _current.values.where((v) => v != null).length;
-  bool get _allAnswered => _answeredCount == 6;
+  bool get _allAnswered => _answeredCount == _soundCount;
 
   Future<void> _playSound(int index) async {
-    setState(() => _isPlayingSound = true);
+    setState(() {
+      _isPlayingSound = true;
+      _currentPlayingIndex = index;
+    });
     try {
-      final name = _sounds[index]['sound'];
-      await _audioPlayer.setAsset('assets/sounds/ling_$name.mp3');
+      await _audioPlayer.stop();
+      final name = _metaFor(index).sound;
+      final remoteUrl = _audioUrls[name];
+      if (remoteUrl != null &&
+          (remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://'))) {
+        await _audioPlayer.setUrl(remoteUrl);
+      } else {
+        await _audioPlayer.setAsset('assets/sounds/ling_$name.mp3');
+      }
       await _audioPlayer.play();
       await _audioPlayer.playerStateStream.firstWhere(
         (s) => s.processingState == ProcessingState.completed);
@@ -68,11 +168,21 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
       // Asset may not exist yet — simulate
       await Future.delayed(const Duration(milliseconds: 800));
     }
-    if (mounted) setState(() => _isPlayingSound = false);
+    if (mounted) {
+      setState(() {
+        _isPlayingSound = false;
+        _currentPlayingIndex = null;
+      });
+    }
   }
 
   void _respond(int index, bool heard) {
-    setState(() => _current[index] = heard);
+    setState(() {
+      _current[index] = heard;
+      if (index < _soundCount - 1 && _activeSoundIndex == index) {
+        _activeSoundIndex = index + 1;
+      }
+    });
   }
 
   void _completeRound1() {
@@ -80,15 +190,19 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
   }
 
   void _startRound2() {
-    setState(() { _round = 2; _phase = 1; });
+    setState(() {
+      _round = 2;
+      _phase = 1;
+      _activeSoundIndex = 0;
+    });
   }
 
   Future<void> _submit() async {
     setState(() => _phase = 3);
     try {
       final api = ref.read(fastApiServiceProvider);
-      final results = List.generate(6, (i) => {
-        'sound': _sounds[i]['sound'],
+      final results = List.generate(_soundCount, (i) => {
+        'sound': _metaFor(i).sound,
         'round1heard': _round1[i] ?? false,
         'round2heard': _round2[i] ?? false,
       });
@@ -98,6 +212,16 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
         'overallResult': 'Error', 'frequencyRangeEstimate': '',
         'flaggedSounds': [], 'clinicalExplanation': 'Analysis failed: $e',
         'recommendation': 'Please try again.',
+        'frequencyProfile': {
+          'orderedMissedSounds': <String>[],
+          'frequencyBands': <String>[],
+          'rationale': '',
+        },
+        'roundSummary': {
+          'round1HeardCount': 0,
+          'round2HeardCount': 0,
+          'totalSounds': 6,
+        },
       };
     }
     if (mounted) setState(() => _phase = 4);
@@ -113,8 +237,8 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
       final r2Heard = _round2.values.where((v) => v == true).length;
       final score = (r2Heard / 6 * 100).round();
 
-      final lingResults = List.generate(6, (i) => LingSixResult(
-        sound: _sounds[i]['sound']!,
+      final lingResults = List.generate(_soundCount, (i) => LingSixResult(
+        sound: _metaFor(i).sound,
         round1heard: _round1[i] ?? false,
         round2heard: _round2[i] ?? false,
       ));
@@ -122,32 +246,66 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
       final log = SpeechLogModel(
         logId: logId, game: 'lingSix', conductedBy: uid, conductorRole: role,
         date: DateTime.now(), score: score, lingResults: lingResults,
-        frequencyFlag: _apiResult?['frequencyRangeEstimate'] as String?,
-        aiAnalysisSummary: _apiResult?['clinicalExplanation'] as String?,
+        frequencyFlag: (_apiResult?['overallResult'] as String?)?.toLowerCase(),
+        aiAnalysisSummary: [
+          _apiResult?['clinicalExplanation'] as String? ?? '',
+          (_apiResult?['frequencyProfile']?['rationale'] as String?) ?? '',
+        ].where((line) => line.trim().isNotEmpty).join(' | '),
       );
       await fs.addSpeechLog(widget.childId, log);
-      await fs.updateChild(widget.childId, {'lastSpeechSessionDate': DateTime.now()});
+
+      try {
+        final aggregate = await ref.read(fastApiServiceProvider).aggregateRiskScore(
+          childId: widget.childId,
+          trigger: 'speech_log',
+        );
+        await fs.updateChild(widget.childId, {
+          'lastSpeechSessionDate': DateTime.now(),
+          'riskScore': aggregate['riskScore'],
+          'riskLevel': aggregate['riskLevel'],
+          'lastUpdatedAt': DateTime.now(),
+          if (aggregate['breakdown'] != null) 'riskBreakdown': aggregate['breakdown'],
+        });
+      } catch (_) {
+        await fs.updateChild(widget.childId, {'lastSpeechSessionDate': DateTime.now()});
+      }
+
+      final child = await fs.getChild(widget.childId);
+      if (child != null) {
+        await notifySpeechSessionSaved(
+          fastApi: ref.read(fastApiServiceProvider),
+          child: child,
+          conductorRole: role,
+          gameName: 'Ling Six Test',
+          score: score,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Result saved! ✓'), backgroundColor: HearTechColors.green));
-        context.pop();
+        closeSpeechScreen(context, role: role, fromGameScreen: true);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e'), backgroundColor: HearTechColors.coralRed));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Save failed: $e'), backgroundColor: HearTechColors.coralRed),
+        );
+      }
     }
     if (mounted) setState(() => _isSaving = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final role = ref.watch(userRoleProvider) ?? 'parent';
     return Scaffold(
       backgroundColor: HearTechColors.background,
       appBar: AppBar(
         backgroundColor: HearTechColors.deepTeal,
         leading: IconButton(icon: const Icon(Icons.close, color: HearTechColors.white),
-          onPressed: () => context.pop()),
+          onPressed: () =>
+              closeSpeechScreen(context, role: role, fromGameScreen: true)),
         title: Text('Ling Six Sound Test',
           style: HearTechTextStyles.appBarTitle(color: HearTechColors.white)),
         centerTitle: true,
@@ -171,6 +329,9 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
   }
 
   Widget _buildPhase() {
+    if (_isLoadingAssets) {
+      return const Center(child: CircularProgressIndicator(color: HearTechColors.deepTeal));
+    }
     switch (_phase) {
       case 0: return _buildIntro();
       case 1: return _buildTesting();
@@ -220,8 +381,30 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
               style: HearTechTextStyles.caption(color: HearTechColors.warmOrange))),
           ]),
         ),
+        if (_assetsMessage.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: HearTechColors.warmOrange.withValues(alpha: 0.08),
+              borderRadius: HearTechDecorations.cardBorderRadius,
+            ),
+            child: Text(
+              _assetsMessage,
+              style: HearTechTextStyles.caption(color: HearTechColors.warmOrange),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
         const SizedBox(height: 32),
-        HearTechButton(label: 'Begin Test', onPressed: () => setState(() => _phase = 1)),
+        HearTechButton(
+          label: _isLoadingAssets ? 'Loading sounds...' : 'Begin Test',
+          onPressed: _isLoadingAssets ? null : () => setState(() {
+                _phase = 1;
+                _activeSoundIndex = 0;
+              }),
+        ),
       ]),
     );
   }
@@ -236,110 +419,231 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
     ]);
   }
 
-  // ── Testing ────────────────────────────────────────────────────────────
+  // ── Testing — one sound at a time (avoids scroll/list layout bugs) ─────
   Widget _buildTesting() {
-    return Column(children: [
-      // Distance banner
-      Container(
-        width: double.infinity, padding: const EdgeInsets.all(12),
-        color: HearTechColors.warmOrange.withValues(alpha: 0.15),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.straighten, color: HearTechColors.warmOrange, size: 18),
-          const SizedBox(width: 8),
-          Text(_round == 1
-            ? 'Child should be 1 metre away from the device'
-            : 'Move the child 3 metres away from the device',
-            style: HearTechTextStyles.caption(color: HearTechColors.warmOrange)
-                .copyWith(fontWeight: FontWeight.w600)),
-        ]),
-      ),
-
-      Expanded(child: ListView.builder(
-        padding: const EdgeInsets.all(16), itemCount: 6,
-        itemBuilder: (_, i) => _buildSoundCard(i),
-      )),
-
-      // Progress + button
-      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: Column(children: [
-        // Progress dots
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(6, (i) {
-          final answered = _current[i] != null;
-          final heard = _current[i] == true;
-          return Container(
-            width: 14, height: 14, margin: const EdgeInsets.symmetric(horizontal: 3),
-            decoration: BoxDecoration(shape: BoxShape.circle,
-              color: answered ? (heard ? HearTechColors.green : HearTechColors.coralRed)
-                  : HearTechColors.divider),
-          );
-        })),
-        const SizedBox(height: 6),
-        Text('$_answeredCount of 6 sounds completed', style: HearTechTextStyles.caption()),
-        const SizedBox(height: 12),
-        if (_allAnswered)
-          HearTechButton(
-            label: _round == 1 ? 'Complete Round 1' : 'Submit Results',
-            onPressed: _round == 1 ? _completeRound1 : _submit),
-      ])),
-    ]);
-  }
-
-  Widget _buildSoundCard(int i) {
-    final s = _sounds[i];
+    final i = _activeSoundIndex;
+    final meta = _metaFor(i);
+    final imageUrl = _imageUrls[meta.sound];
     final answered = _current[i] != null;
     final heard = _current[i] == true;
-    final borderColor = !answered ? Colors.transparent
-        : heard ? HearTechColors.green : HearTechColors.coralRed;
+    final isPlaying = _isPlayingSound && _currentPlayingIndex == i;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: HearTechColors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: HearTechDecorations.subtleShadow,
-        border: Border(left: BorderSide(color: borderColor, width: answered ? 4 : 0)),
-      ),
-      child: Row(children: [
-        // Sound symbol
-        Column(children: [
-          Text(s['display']!, style: HearTechTextStyles.screenTitle().copyWith(fontSize: 32)),
-          Text(s['freq']!, style: HearTechTextStyles.caption()),
-        ]),
-        const SizedBox(width: 12),
-
-        // Play button
-        IconButton(
-          onPressed: _isPlayingSound ? null : () => _playSound(i),
-          icon: Icon(_isPlayingSound ? Icons.volume_up : Icons.play_circle_fill,
-            color: HearTechColors.deepTeal, size: 32),
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          color: HearTechColors.warmOrange.withValues(alpha: 0.15),
+          child: Text(
+            _round == 1
+                ? 'Child should be 1 metre away from the device'
+                : 'Move the child 3 metres away from the device',
+            style: HearTechTextStyles.caption(color: HearTechColors.warmOrange)
+                .copyWith(fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+          ),
         ),
-        const Spacer(),
-
-        // Response buttons
-        _responseBtn('Heard It', Icons.hearing, HearTechColors.green,
-          heard == true && answered, () => _respond(i, true)),
-        const SizedBox(width: 8),
-        _responseBtn('No', Icons.volume_off, HearTechColors.textSecondary,
-          heard == false && answered, () => _respond(i, false)),
-      ]),
-    ).animate(delay: (i * 60).ms).fadeIn(duration: 200.ms).slideX(begin: 0.05);
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(_soundCount, (idx) {
+              final done = _current[idx] != null;
+              final ok = _current[idx] == true;
+              final active = idx == i;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(left: idx == 0 ? 0 : 4, right: idx == _soundCount - 1 ? 0 : 4),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _activeSoundIndex = idx),
+                    child: Container(
+                      height: 36,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? HearTechColors.deepTeal
+                            : done
+                                ? (ok ? HearTechColors.green : HearTechColors.coralRed)
+                                : HearTechColors.divider,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _metaFor(idx).sound,
+                        style: TextStyle(
+                          color: active || done ? HearTechColors.white : HearTechColors.textSecondary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: HearTechColors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: answered
+                      ? (heard ? HearTechColors.green : HearTechColors.coralRed)
+                      : HearTechColors.divider,
+                  width: answered ? 2 : 1,
+                ),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Sound ${i + 1} of $_soundCount',
+                            style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+                          ),
+                          const SizedBox(height: 20),
+                          _buildActiveThumbnail(meta.sound, imageUrl),
+                          const SizedBox(height: 20),
+                          Text(
+                            meta.display,
+                            style: const TextStyle(
+                              fontSize: 52,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1A2E35),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            meta.freq,
+                            style: HearTechTextStyles.body(color: HearTechColors.deepTeal),
+                          ),
+                          Text(
+                            meta.label,
+                            style: HearTechTextStyles.caption(),
+                          ),
+                          const SizedBox(height: 28),
+                          HearTechButton(
+                            label: isPlaying ? 'Playing sound...' : 'Play sound',
+                            icon: isPlaying ? Icons.volume_up : Icons.play_arrow_rounded,
+                            onPressed: _isPlayingSound ? null : () => _playSound(i),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _respond(i, true),
+                                  icon: const Icon(Icons.hearing, size: 18),
+                                  label: const Text('Heard It'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: heard && answered
+                                        ? HearTechColors.green
+                                        : HearTechColors.deepTeal,
+                                    foregroundColor: HearTechColors.white,
+                                    minimumSize: const Size(0, 48),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _respond(i, false),
+                                  icon: const Icon(Icons.volume_off, size: 18),
+                                  label: const Text('No'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: !heard && answered
+                                        ? HearTechColors.coralRed
+                                        : HearTechColors.textSecondary,
+                                    minimumSize: const Size(0, 48),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(
+                                onPressed:
+                                    i > 0 ? () => setState(() => _activeSoundIndex--) : null,
+                                child: const Text('← Previous'),
+                              ),
+                              TextButton(
+                                onPressed: i < _soundCount - 1
+                                    ? () => setState(() => _activeSoundIndex++)
+                                    : null,
+                                child: const Text('Next →'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            children: [
+              Text(
+                '$_answeredCount of $_soundCount sounds completed',
+                style: HearTechTextStyles.caption(),
+              ),
+              const SizedBox(height: 12),
+              if (_allAnswered)
+                HearTechButton(
+                  label: _round == 1 ? 'Complete Round 1' : 'Submit Results',
+                  onPressed: _round == 1 ? _completeRound1 : _submit,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _responseBtn(String label, IconData icon, Color color, bool selected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
+  Widget _buildActiveThumbnail(String soundKey, String? imageUrl) {
+    final hasRemote = imageUrl != null &&
+        (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'));
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: selected ? color : HearTechColors.divider)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 14, color: selected ? color : HearTechColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(label, style: HearTechTextStyles.caption(
-            color: selected ? color : HearTechColors.textSecondary)
-              .copyWith(fontWeight: selected ? FontWeight.w700 : FontWeight.w400)),
-        ]),
+        width: 96,
+        height: 96,
+        color: HearTechColors.paleTeal,
+        alignment: Alignment.center,
+        child: hasRemote
+            ? Image.network(
+                imageUrl,
+                width: 96,
+                height: 96,
+                fit: BoxFit.cover,
+                errorBuilder: (_, error, stackTrace) => Icon(
+                  _lingFallbackIcons[soundKey] ?? Icons.hearing,
+                  size: 44,
+                  color: HearTechColors.deepTeal,
+                ),
+              )
+            : Icon(
+                _lingFallbackIcons[soundKey] ?? Icons.hearing,
+                size: 44,
+                color: HearTechColors.deepTeal,
+              ),
       ),
     );
   }
@@ -387,12 +691,21 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
     final freq = _apiResult!['frequencyRangeEstimate'] as String? ?? '';
     final explanation = _apiResult!['clinicalExplanation'] as String? ?? '';
     final recommendation = _apiResult!['recommendation'] as String? ?? '';
+    final profile = Map<String, dynamic>.from(
+      (_apiResult!['frequencyProfile'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ?? {},
+    );
+    final roundSummary = Map<String, dynamic>.from(
+      (_apiResult!['roundSummary'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ?? {},
+    );
+    final profileBands = List<String>.from(profile['frequencyBands'] ?? const <String>[]);
+    final profileRationale = profile['rationale'] as String? ?? '';
     final flagged = List<Map<String, dynamic>>.from(
       (_apiResult!['flaggedSounds'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? []);
 
     Color badgeColor; IconData badgeIcon;
-    if (overall == 'Pass') { badgeColor = HearTechColors.green; badgeIcon = Icons.check_circle; }
-    else if (overall == 'Watch') { badgeColor = HearTechColors.warmOrange; badgeIcon = Icons.visibility; }
+    final overallLower = overall.toLowerCase();
+    if (overallLower == 'pass') { badgeColor = HearTechColors.green; badgeIcon = Icons.check_circle; }
+    else if (overallLower == 'watch') { badgeColor = HearTechColors.warmOrange; badgeIcon = Icons.visibility; }
     else { badgeColor = HearTechColors.coralRed; badgeIcon = Icons.warning; }
 
     return SingleChildScrollView(padding: const EdgeInsets.all(20), child: Column(children: [
@@ -426,7 +739,7 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
             topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28,
               getTitlesWidget: (v, _) => Padding(padding: const EdgeInsets.only(top: 6),
-                child: Text(_sounds[v.toInt()]['sound']!, style: HearTechTextStyles.caption()
+                child: Text(_metaFor(v.toInt()).sound, style: HearTechTextStyles.caption()
                     .copyWith(fontWeight: FontWeight.w600))))),
           ),
           gridData: const FlGridData(show: false),
@@ -453,6 +766,52 @@ class _LingSixScreenState extends ConsumerState<LingSixScreen> {
         decoration: BoxDecoration(color: HearTechColors.paleTeal, borderRadius: BorderRadius.circular(12)),
         child: Text('Likely frequency range: $freq', style: HearTechTextStyles.body(color: HearTechColors.deepTeal)),
       ),
+      if (roundSummary.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: HearTechColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: HearTechColors.divider),
+          ),
+          child: Text(
+            'Round 1 heard: ${roundSummary['round1HeardCount'] ?? 0}/${roundSummary['totalSounds'] ?? 6}  •  '
+            'Round 2 heard: ${roundSummary['round2HeardCount'] ?? 0}/${roundSummary['totalSounds'] ?? 6}',
+            style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+          ),
+        ),
+      ],
+      if (profileBands.isNotEmpty || profileRationale.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: HearTechColors.paleTeal.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (profileBands.isNotEmpty)
+                Text(
+                  'Detected bands: ${profileBands.join(', ')}',
+                  style: HearTechTextStyles.caption(color: HearTechColors.deepTeal)
+                      .copyWith(fontWeight: FontWeight.w700),
+                ),
+              if (profileRationale.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  profileRationale,
+                  style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
 
       // Flagged sounds
       if (flagged.isNotEmpty) ...[

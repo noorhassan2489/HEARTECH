@@ -5,7 +5,8 @@ import 'package:heartech/core/theme/app_theme.dart';
 import 'package:heartech/core/router/app_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:heartech/core/di/providers.dart';
-import 'package:heartech/shared/widgets/avatar_circle.dart';
+import 'package:heartech/shared/widgets/editable_profile_avatar.dart';
+import 'package:heartech/shared/widgets/license_document_upload_tile.dart';
 import 'package:heartech/shared/widgets/heartech_button.dart';
 import 'package:heartech/shared/widgets/loading_indicator.dart';
 import 'package:heartech/shared/models/user_model.dart';
@@ -39,8 +40,17 @@ class HcwProfileScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                // Avatar section
-                AvatarCircle(name: user.name, photoUrl: user.profilePhotoUrl, radius: 50),
+                EditableProfileAvatar(
+                  uid: user.uid,
+                  name: user.name,
+                  photoUrl: user.profilePhotoUrl,
+                  radius: 50,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tap photo to change',
+                  style: HearTechTextStyles.caption(color: HearTechColors.textSecondary),
+                ),
                 const SizedBox(height: 16),
                 Text(user.name, style: HearTechTextStyles.screenTitle()),
                 const SizedBox(height: 4),
@@ -120,6 +130,8 @@ class HcwProfileScreen extends ConsumerWidget {
                         Icons.edit_outlined, 'Edit Profile',
                         () => _showEditProfile(context, ref, user),
                       ),
+                      const Divider(height: 1),
+                      LicenseDocumentUploadTile(uid: user.uid),
                       const Divider(height: 1),
                       _settingsTile(
                         Icons.notifications_outlined, 'Notification Preferences',
